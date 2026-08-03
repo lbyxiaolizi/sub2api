@@ -42,6 +42,13 @@
       <template #table>
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <DataTable :columns="columns" :data="filteredPools" :loading="loading">
+            <template #empty>
+              <EmptyState
+                :title="t('admin.proxyPools.noPools')"
+                :description="t('admin.proxyPools.noPoolsHint')"
+              />
+            </template>
+
             <template #cell-name="{ row }">
               <div class="flex items-center gap-2">
                 <span class="font-medium text-gray-900 dark:text-white">{{ row.name }}</span>
@@ -103,11 +110,6 @@
               </div>
             </template>
           </DataTable>
-          <EmptyState
-            v-if="!loading && filteredPools.length === 0"
-            :title="t('admin.proxyPools.noPools')"
-            :description="t('admin.proxyPools.noPoolsHint')"
-          />
         </div>
       </template>
     </TablePageLayout>
