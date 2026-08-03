@@ -36,8 +36,10 @@ describe('native browser controls', () => {
     expect(offenders).toEqual([])
   })
 
-  it('does not use native browser dialog APIs in production source', () => {
-    const nativeDialogCall = /\b(?:window\.)?(?:alert|confirm|prompt)\s*\(/
+  it('does not call window.alert/confirm/prompt in production source', () => {
+    // 只拦截显式的 window.alert/confirm/prompt 调用；局部同名函数与
+    // 字符串字面量（如 i18n 文案中的 "prompt (...)"）不算浏览器对话框。
+    const nativeDialogCall = /\bwindow\.(?:alert|confirm|prompt)\s*\(/
     const offenders = productionSources.filter((path) =>
       nativeDialogCall.test(stripComments(readFileSync(path, 'utf8'))),
     )

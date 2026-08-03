@@ -129,6 +129,41 @@
       </div>
     </div>
 
+    <!-- 重命名：内联对话框替换原生 window.prompt -->
+    <div v-if="renameTarget" class="fixed inset-0 z-50 overflow-y-auto">
+      <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-black/50 transition-opacity" @click="closeRenameDialog"></div>
+        <div
+          class="relative w-full max-w-md transform rounded-xl bg-white p-6 shadow-xl transition-all dark:bg-dark-800"
+        >
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t('profile.passkey.renamePrompt') }}
+          </h3>
+          <form class="mt-4 space-y-4" @submit.prevent="confirmRename">
+            <div>
+              <label for="passkey-rename-name" class="input-label">{{ t('profile.passkey.name') }}</label>
+              <input
+                id="passkey-rename-name"
+                v-model="renameName"
+                class="input"
+                maxlength="100"
+                :placeholder="t('profile.passkey.namePlaceholder')"
+                autofocus
+              />
+            </div>
+            <div class="flex justify-end gap-3">
+              <button type="button" class="btn btn-secondary" :disabled="busy" @click="closeRenameDialog">
+                {{ t('common.cancel') }}
+              </button>
+              <button type="submit" class="btn btn-primary" :disabled="busy || renameName.trim().length === 0">
+                {{ busy ? t('common.processing') : t('common.save') }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <!-- 删除确认：吊销凭据需验证当前密码，防止被窃会话静默移除 Passkey -->
     <div v-if="deleteTarget" class="fixed inset-0 z-50 overflow-y-auto">
       <div class="flex min-h-full items-center justify-center p-4">
@@ -195,6 +230,8 @@ const newName = ref('')
 const newPassword = ref('')
 const deleteTarget = ref<PasskeyCredentialSummary | null>(null)
 const deletePassword = ref('')
+const renameTarget = ref<PasskeyCredentialSummary | null>(null)
+const renameName = ref('')
 const credentials = ref<PasskeyCredentialSummary[]>([])
 
 // apiClient 拦截器把错误规范化为 { code, reason, message }；
@@ -248,13 +285,28 @@ function cancelAdd(): void {
 }
 
 async function renamePasskey(credential: PasskeyCredentialSummary): Promise<void> {
-  const name = window.prompt(t('profile.passkey.renamePrompt'), credential.name)?.trim()
-  if (!name || name === credential.name) return
+  renameTarget.value = credential
+  renameName.value = credential.name
+}
+
+function closeRenameDialog(): void {
+  renameTarget.value = null
+  renameName.value = ''
+}
+
+async function confirmRename(): Promise<void> {
+  const target = renameTarget.value
+  const name = renameName.value.trim()
+  if (!target || !name || name === target.name) {
+    closeRenameDialog()
+    return
+  }
   busy.value = true
   try {
-    await passkeyAPI.rename(credential.id, name)
-    credential.name = name
+    await passkeyAPI.rename(target.id, name)
+    target.name = name
     appStore.showSuccess(t('profile.passkey.renamed'))
+    closeRenameDialog()
   } catch {
     appStore.showError(t('profile.passkey.renameFailed'))
   } finally {
