@@ -193,16 +193,12 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 		return err
 	}
 
-	client, err := s.connectSMTP(config)
+	client, err := s.dialAuthenticated(config)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = client.Close() }()
 
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("smtp auth: %w", err)
-	}
 	if err = client.Mail(message.envelopeFrom); err != nil {
 		return fmt.Errorf("smtp mail: %w", err)
 	}
@@ -299,6 +295,90 @@ func newSMTPClient(conn net.Conn, host string) (*smtp.Client, error) {
 		return nil, fmt.Errorf("new smtp client: %w", err)
 	}
 	return client, nil
+}
+
+// loginAuth 实现 SMTP AUTH LOGIN（RFC 4954 非标准但被 Exchange/Outlook 等广泛支持）。
+// net/smtp 会在发送前对 Start/Next 的返回值做 base64 编码，因此这里直接返回明文。
+// 挑战内容（Username:/Password: 的 base64 或明文变体）被忽略，按步数应答，兼容性最好。
+type loginAuth struct {
+	username string
+	password string
+	step     int
+}
+
+func (a *loginAuth) Start(*smtp.ServerInfo) (string, []byte, error) {
+	return "LOGIN", nil, nil
+}
+
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	switch a.step {
+	case 0:
+		a.step++
+		return []byte(a.username), nil
+	case 1:
+		a.step++
+		return []byte(a.password), nil
+	default:
+		return nil, errors.New("smtp: unexpected LOGIN challenge")
+	}
+}
+
+// smtpAuthMechanisms 根据服务器 EHLO 公告决定认证机制尝试顺序（去重）。
+//   - PLAIN 优先（简洁、标准）；只公告 LOGIN 时用 LOGIN；
+//   - 未公告任何机制时仍依次尝试 PLAIN → LOGIN：部分 Exchange/Outlook
+//     服务器接受 LOGIN 却不公告（SMTP AUTH 半开状态），逐次让服务器裁决。
+func smtpAuthMechanisms(advertised string) []string {
+	advertised = strings.ToUpper(advertised)
+	var mechs []string
+	if strings.Contains(advertised, "PLAIN") {
+		mechs = append(mechs, "PLAIN")
+	}
+	if strings.Contains(advertised, "LOGIN") {
+		mechs = append(mechs, "LOGIN")
+	}
+	if len(mechs) == 0 {
+		mechs = []string{"PLAIN", "LOGIN"}
+	}
+	return mechs
+}
+
+func smtpAuthFor(mech string, config *SMTPConfig) smtp.Auth {
+	if mech == "LOGIN" {
+		return &loginAuth{username: config.Username, password: config.Password}
+	}
+	return smtp.PlainAuth("", config.Username, config.Password, config.Host)
+}
+
+// dialAuthenticated 建立 SMTP 连接并完成认证，测试连接与发送共用此路径。
+// net/smtp 的 Auth 在失败时（如 504 5.7.4）会 QUIT 并关闭连接，
+// 因此换用另一机制前必须重新拨号。
+func (s *EmailService) dialAuthenticated(config *SMTPConfig) (*smtp.Client, error) {
+	client, err := s.connectSMTP(config)
+	if err != nil {
+		return nil, fmt.Errorf("smtp connection failed: %w", err)
+	}
+
+	_, advertised := client.Extension("AUTH")
+	mechs := smtpAuthMechanisms(advertised)
+	var lastErr error
+	for i, mech := range mechs {
+		if i > 0 {
+			_ = client.Close()
+			client, err = s.connectSMTP(config)
+			if err != nil {
+				return nil, fmt.Errorf("smtp connection failed: %w", err)
+			}
+		}
+		if err = client.Auth(smtpAuthFor(mech, config)); err == nil {
+			return client, nil
+		}
+		lastErr = err
+	}
+	_ = client.Close()
+	return nil, fmt.Errorf("smtp authentication failed: %w", lastErr)
 }
 
 // GenerateVerifyCode 生成6位数字验证码
@@ -453,16 +533,11 @@ func (s *EmailService) buildVerifyCodeEmailBody(code, siteName string) string {
 // 与 SendEmailWithConfig 共用 connectSMTP 建连（含 STARTTLS 升级逻辑），
 // 避免出现"测试连接失败但实际发信成功"的不一致。
 func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
-	client, err := s.connectSMTP(config)
+	client, err := s.dialAuthenticated(config)
 	if err != nil {
-		return fmt.Errorf("smtp connection failed: %w", err)
+		return err
 	}
 	defer func() { _ = client.Close() }()
-
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-	if err := client.Auth(auth); err != nil {
-		return fmt.Errorf("smtp authentication failed: %w", err)
-	}
 
 	// 认证成功即视为连接可用；与发送路径一致，忽略 QUIT 的非标准响应。
 	_ = client.Quit()

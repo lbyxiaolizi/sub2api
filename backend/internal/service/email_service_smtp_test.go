@@ -12,11 +12,14 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"net/smtp"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // newSMTPTestCert 生成 127.0.0.1/localhost 的自签证书及其信任池。
@@ -58,13 +61,34 @@ type fakeSMTPServer struct {
 	tlsConfig         *tls.Config
 	advertiseStartTLS bool
 
+	// 认证行为（默认：公告 PLAIN LOGIN，任何 AUTH 直接成功）
+	advertiseAuth  string // EHLO 公告的机制列表，空则跳过 AUTH 公告行
+	loginChallenge bool   // AUTH LOGIN 走 334 挑战流程（验证 base64 凭据）
+	rejectPlain    bool   // AUTH PLAIN 回 504 5.7.4（模拟仅接受 LOGIN 的服务器）
+
 	mu       sync.Mutex
 	commands []string
 	conns    atomic.Int64
 	wg       sync.WaitGroup
 }
 
+type fakeSMTPOptions struct {
+	implicitTLS       bool
+	advertiseStartTLS bool
+	advertiseAuth     string
+	loginChallenge    bool
+	rejectPlain       bool
+}
+
 func startFakeSMTPServer(t *testing.T, implicitTLS, advertiseStartTLS bool) (*fakeSMTPServer, int) {
+	t.Helper()
+	return startFakeSMTPServerWithOptions(t, fakeSMTPOptions{
+		implicitTLS:       implicitTLS,
+		advertiseStartTLS: advertiseStartTLS,
+	})
+}
+
+func startFakeSMTPServerWithOptions(t *testing.T, opts fakeSMTPOptions) (*fakeSMTPServer, int) {
 	t.Helper()
 	cert, pool := newSMTPTestCert(t)
 	prevPool := smtpTestRootCAs
@@ -78,9 +102,15 @@ func startFakeSMTPServer(t *testing.T, implicitTLS, advertiseStartTLS bool) (*fa
 	srv := &fakeSMTPServer{
 		listener:          listener,
 		tlsConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
-		advertiseStartTLS: advertiseStartTLS,
+		advertiseStartTLS: opts.advertiseStartTLS,
+		advertiseAuth:     opts.advertiseAuth,
+		loginChallenge:    opts.loginChallenge,
+		rejectPlain:       opts.rejectPlain,
 	}
-	if implicitTLS {
+	if srv.advertiseAuth == "" {
+		srv.advertiseAuth = "PLAIN LOGIN"
+	}
+	if opts.implicitTLS {
 		srv.listener = tls.NewListener(listener, srv.tlsConfig)
 	}
 	t.Cleanup(func() {
@@ -128,6 +158,18 @@ func (srv *fakeSMTPServer) sawCommand(prefix string) bool {
 	return false
 }
 
+// sawExact 大小写敏感的精确匹配（用于 base64 凭据等）。
+func (srv *fakeSMTPServer) sawExact(cmd string) bool {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, seen := range srv.commands {
+		if seen == cmd {
+			return true
+		}
+	}
+	return false
+}
+
 func (srv *fakeSMTPServer) serve(conn net.Conn, allowStartTLS bool) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -154,7 +196,10 @@ func (srv *fakeSMTPServer) serve(conn net.Conn, allowStartTLS bool) {
 			if allowStartTLS {
 				ok = ok && writeLine("250-STARTTLS")
 			}
-			if !(ok && writeLine("250-AUTH PLAIN LOGIN") && writeLine("250 8BITMIME")) {
+			if srv.advertiseAuth != "" {
+				ok = ok && writeLine("250-AUTH "+srv.advertiseAuth)
+			}
+			if !(ok && writeLine("250 8BITMIME")) {
 				return
 			}
 		case upper == "STARTTLS" && allowStartTLS:
@@ -168,7 +213,7 @@ func (srv *fakeSMTPServer) serve(conn net.Conn, allowStartTLS bool) {
 			srv.serveUpgraded(tlsConn)
 			return
 		case strings.HasPrefix(upper, "AUTH"):
-			if !writeLine("235 2.7.0 authentication successful") {
+			if !srv.handleAuth(reader, writeLine, cmd) {
 				return
 			}
 		case strings.HasPrefix(upper, "MAIL"), strings.HasPrefix(upper, "RCPT"):
@@ -210,6 +255,36 @@ func (srv *fakeSMTPServer) serveUpgraded(conn net.Conn) {
 	srv.serveCommands(reader, writer)
 }
 
+// handleAuth 处理 AUTH 命令。
+// loginChallenge=true 时 AUTH LOGIN 走标准 334 挑战流程并记录 base64 凭据；
+// rejectPlain=true 时 AUTH PLAIN 回 504 5.7.4（模拟 Outlook 拒绝 PLAIN 的场景）。
+func (srv *fakeSMTPServer) handleAuth(reader *bufio.Reader, writeLine func(string) bool, cmd string) bool {
+	upper := strings.ToUpper(cmd)
+	if srv.rejectPlain && strings.HasPrefix(upper, "AUTH PLAIN") {
+		return writeLine("504 5.7.4 Unrecognized authentication type")
+	}
+	if srv.loginChallenge && strings.HasPrefix(upper, "AUTH LOGIN") {
+		if !writeLine("334 VXNlcm5hbWU6") { // base64("Username:")
+			return false
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return false
+		}
+		srv.record(strings.TrimSpace(line))
+		if !writeLine("334 UGFzc3dvcmQ6") { // base64("Password:")
+			return false
+		}
+		line, err = reader.ReadString('\n')
+		if err != nil {
+			return false
+		}
+		srv.record(strings.TrimSpace(line))
+		return writeLine("235 2.7.0 authentication successful")
+	}
+	return writeLine("235 2.7.0 authentication successful")
+}
+
 func (srv *fakeSMTPServer) serveCommands(reader *bufio.Reader, writer *bufio.Writer) {
 	writeLine := func(line string) bool {
 		if _, err := writer.WriteString(line + "\r\n"); err != nil {
@@ -227,11 +302,15 @@ func (srv *fakeSMTPServer) serveCommands(reader *bufio.Reader, writer *bufio.Wri
 		upper := strings.ToUpper(cmd)
 		switch {
 		case strings.HasPrefix(upper, "EHLO"), strings.HasPrefix(upper, "HELO"):
-			if !(writeLine("250-fake.test") && writeLine("250-AUTH PLAIN LOGIN") && writeLine("250 8BITMIME")) {
+			ok := writeLine("250-fake.test")
+			if srv.advertiseAuth != "" {
+				ok = ok && writeLine("250-AUTH "+srv.advertiseAuth)
+			}
+			if !(ok && writeLine("250 8BITMIME")) {
 				return
 			}
 		case strings.HasPrefix(upper, "AUTH"):
-			if !writeLine("235 2.7.0 authentication successful") {
+			if !srv.handleAuth(reader, writeLine, cmd) {
 				return
 			}
 		case strings.HasPrefix(upper, "MAIL"), strings.HasPrefix(upper, "RCPT"):
@@ -376,6 +455,118 @@ func TestSendEmailWithConfigImplicitTLS(t *testing.T) {
 	err := svc.SendEmailWithConfig(smtpTestConfig(port, true), "rcpt@example.com", "subject", "<p>body</p>")
 	if err != nil {
 		t.Fatalf("expected send via implicit TLS to succeed, got: %v", err)
+	}
+	if !srv.sawCommand("DATA") {
+		t.Fatal("expected send path to reach DATA")
+	}
+}
+
+// ── AUTH LOGIN 支持 ──────────────────────────────────────────────────────────
+
+func TestSMTPAuthMechanismsOrder(t *testing.T) {
+	// PLAIN 优先
+	require.Equal(t, []string{"PLAIN", "LOGIN"}, smtpAuthMechanisms("PLAIN LOGIN"))
+	// 只公告 LOGIN
+	require.Equal(t, []string{"LOGIN"}, smtpAuthMechanisms("LOGIN"))
+	// 只公告 PLAIN
+	require.Equal(t, []string{"PLAIN"}, smtpAuthMechanisms("PLAIN"))
+	// 大小写不敏感
+	require.Equal(t, []string{"PLAIN", "LOGIN"}, smtpAuthMechanisms("plain login"))
+	// 未公告（SMTP AUTH 半开/禁用）：依次尝试两种机制让服务器裁决
+	require.Equal(t, []string{"PLAIN", "LOGIN"}, smtpAuthMechanisms(""))
+	require.Equal(t, []string{"PLAIN", "LOGIN"}, smtpAuthMechanisms("XOAUTH2"))
+}
+
+func TestLoginAuthChallengeFlow(t *testing.T) {
+	auth := &loginAuth{username: "user", password: "pass"}
+
+	mech, resp, err := auth.Start(&smtp.ServerInfo{})
+	require.NoError(t, err)
+	require.Equal(t, "LOGIN", mech)
+	require.Nil(t, resp)
+
+	// 第一次挑战 → 用户名（net/smtp 会 base64 编码后发送）
+	first, err := auth.Next([]byte("Username:"), true)
+	require.NoError(t, err)
+	require.Equal(t, "user", string(first))
+	// 第二次挑战 → 密码
+	second, err := auth.Next([]byte("Password:"), true)
+	require.NoError(t, err)
+	require.Equal(t, "pass", string(second))
+	// more=false 结束
+	done, err := auth.Next(nil, false)
+	require.NoError(t, err)
+	require.Nil(t, done)
+	// 超出步数报错
+	_, err = auth.Next([]byte("?"), true)
+	require.Error(t, err)
+}
+
+// 服务器只公告 AUTH LOGIN：测试连接必须通过 LOGIN 认证成功，且凭据 base64 正确。
+func TestSMTPConnectionLoginOnly(t *testing.T) {
+	srv, port := startFakeSMTPServerWithOptions(t, fakeSMTPOptions{
+		advertiseStartTLS: true,
+		advertiseAuth:     "LOGIN",
+		loginChallenge:    true,
+	})
+	svc := &EmailService{}
+
+	if err := svc.TestSMTPConnectionWithConfig(smtpTestConfig(port, true)); err != nil {
+		t.Fatalf("expected LOGIN authentication to succeed, got: %v", err)
+	}
+	if !srv.sawCommand("AUTH LOGIN") {
+		t.Fatal("expected server to receive AUTH LOGIN")
+	}
+	// base64("user") == "dXNlcg==", base64("pass") == "cGFzcw=="
+	if !srv.sawExact("dXNlcg==") {
+		t.Fatal("expected base64-encoded username, got:", srv.commands)
+	}
+	if !srv.sawExact("cGFzcw==") {
+		t.Fatal("expected base64-encoded password, got:", srv.commands)
+	}
+}
+
+// 服务器公告 PLAIN+LOGIN 但拒绝 PLAIN（504）：必须重连回退到 LOGIN 并成功。
+// 这正是 Outlook/Exchange 5.7.4 报错的覆盖场景。
+func TestSMTPConnectionPLAINRejectedFallsBackToLOGIN(t *testing.T) {
+	srv, port := startFakeSMTPServerWithOptions(t, fakeSMTPOptions{
+		advertiseStartTLS: true,
+		advertiseAuth:     "PLAIN LOGIN",
+		loginChallenge:    true,
+		rejectPlain:       true,
+	})
+	svc := &EmailService{}
+
+	if err := svc.TestSMTPConnectionWithConfig(smtpTestConfig(port, true)); err != nil {
+		t.Fatalf("expected fallback to LOGIN to succeed, got: %v", err)
+	}
+	if !srv.sawCommand("AUTH PLAIN") {
+		t.Fatal("expected first attempt to use AUTH PLAIN")
+	}
+	if !srv.sawCommand("AUTH LOGIN") {
+		t.Fatal("expected fallback attempt to use AUTH LOGIN")
+	}
+	// 回退需要新连接（net/smtp AUTH 失败会 QUIT 关闭连接）
+	if got := srv.conns.Load(); got < 3 {
+		t.Fatalf("expected re-dial before LOGIN attempt (>=3 connections), got %d", got)
+	}
+}
+
+// 发送路径：服务器只公告 LOGIN，整封邮件走 LOGIN 认证并送达 DATA。
+func TestSendEmailWithConfigLoginMechanism(t *testing.T) {
+	srv, port := startFakeSMTPServerWithOptions(t, fakeSMTPOptions{
+		advertiseStartTLS: true,
+		advertiseAuth:     "LOGIN",
+		loginChallenge:    true,
+	})
+	svc := &EmailService{}
+
+	err := svc.SendEmailWithConfig(smtpTestConfig(port, true), "rcpt@example.com", "subject", "<p>body</p>")
+	if err != nil {
+		t.Fatalf("expected send via LOGIN to succeed, got: %v", err)
+	}
+	if !srv.sawCommand("AUTH LOGIN") {
+		t.Fatal("expected send path to use AUTH LOGIN")
 	}
 	if !srv.sawCommand("DATA") {
 		t.Fatal("expected send path to reach DATA")
