@@ -955,6 +955,9 @@ var (
 		{Name: "kiro_cache_creation_emulation_ratio", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(5,4)"}},
 		{Name: "kiro_cache_read_emulation_ratio", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(5,4)"}},
 		{Name: "kiro_endpoint_mode", Type: field.TypeString, Size: 8, Default: "q"},
+		{Name: "profit_control_enabled", Type: field.TypeBool, Default: false},
+		{Name: "profit_min_margin", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "profit_safety_buffer", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{

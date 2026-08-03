@@ -1219,6 +1219,18 @@ func init() {
 	group.DefaultKiroEndpointMode = groupDescKiroEndpointMode.Default.(string)
 	// group.KiroEndpointModeValidator is a validator for the "kiro_endpoint_mode" field. It is called by the builders before save.
 	group.KiroEndpointModeValidator = groupDescKiroEndpointMode.Validators[0].(func(string) error)
+	// groupDescProfitControlEnabled is the schema descriptor for profit_control_enabled field.
+	groupDescProfitControlEnabled := groupFields[57].Descriptor()
+	// group.DefaultProfitControlEnabled holds the default value on creation for the profit_control_enabled field.
+	group.DefaultProfitControlEnabled = groupDescProfitControlEnabled.Default.(bool)
+	// groupDescProfitMinMargin is the schema descriptor for profit_min_margin field.
+	groupDescProfitMinMargin := groupFields[58].Descriptor()
+	// group.DefaultProfitMinMargin holds the default value on creation for the profit_min_margin field.
+	group.DefaultProfitMinMargin = groupDescProfitMinMargin.Default.(float64)
+	// groupDescProfitSafetyBuffer is the schema descriptor for profit_safety_buffer field.
+	groupDescProfitSafetyBuffer := groupFields[59].Descriptor()
+	// group.DefaultProfitSafetyBuffer holds the default value on creation for the profit_safety_buffer field.
+	group.DefaultProfitSafetyBuffer = groupDescProfitSafetyBuffer.Default.(float64)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
 	idempotencyrecordMixinFields0 := idempotencyrecordMixin[0].Fields()
 	_ = idempotencyrecordMixinFields0
