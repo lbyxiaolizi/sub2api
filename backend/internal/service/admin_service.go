@@ -130,6 +130,20 @@ type AdminService interface {
 	TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error)
 	CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error)
 
+	// Proxy Pool management
+	ListProxyPools(ctx context.Context) ([]ProxyPoolWithStats, error)
+	GetProxyPool(ctx context.Context, id int64) (*ProxyPool, error)
+	GetProxyPoolProxies(ctx context.Context, poolID int64) ([]ProxyWithAccountCount, error)
+	CreateProxyPool(ctx context.Context, input *CreateProxyPoolInput) (*ProxyPool, error)
+	UpdateProxyPool(ctx context.Context, id int64, input *UpdateProxyPoolInput) (*ProxyPool, error)
+	DeleteProxyPool(ctx context.Context, id int64) error
+	AssignProxiesToPool(ctx context.Context, poolID int64, proxyIDs []int64) (int64, error)
+	RemoveProxiesFromPool(ctx context.Context, poolID int64, proxyIDs []int64) (int64, error)
+	// RunProxyPoolRebind 手动触发一轮池健康探测 + 自动重绑，返回受影响账号数。
+	RunProxyPoolRebind(ctx context.Context, poolID int64) (int64, error)
+	// ListProxyPoolRebindLogs 返回池内最近的重绑日志。
+	ListProxyPoolRebindLogs(ctx context.Context, poolID int64, limit int) ([]ProxyPoolRebindLog, error)
+
 	// Redeem code management
 	ListRedeemCodes(ctx context.Context, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]RedeemCode, int64, error)
 	GetRedeemCode(ctx context.Context, id int64) (*RedeemCode, error)
@@ -656,6 +670,8 @@ type adminServiceImpl struct {
 	affiliateService     adminRechargeAffiliateAccruer
 	compositeRouteRepo   CompositeModelRouteRepository
 	compositeResolver    *CompositeRouteResolver
+	poolRepo             ProxyPoolRepository
+	poolService          *ProxyPoolService
 }
 
 type adminRechargeAffiliateAccruer interface {
@@ -689,6 +705,8 @@ func NewAdminService(
 	affiliateService *AffiliateService,
 	compositeRouteRepo CompositeModelRouteRepository,
 	compositeResolver *CompositeRouteResolver,
+	poolRepo ProxyPoolRepository,
+	poolService *ProxyPoolService,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
@@ -714,5 +732,7 @@ func NewAdminService(
 		affiliateService:     affiliateService,
 		compositeRouteRepo:   compositeRouteRepo,
 		compositeResolver:    compositeResolver,
+		poolRepo:             poolRepo,
+		poolService:          poolService,
 	}
 }

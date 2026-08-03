@@ -524,6 +524,20 @@ func registerProxyRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth
 		proxies.POST("/batch-delete", h.Admin.Proxy.BatchDelete)
 		proxies.POST("/batch", h.Admin.Proxy.BatchCreate)
 	}
+
+	pools := admin.Group("/proxy-pools")
+	{
+		pools.GET("", h.Admin.ProxyPool.List)
+		pools.POST("", h.Admin.ProxyPool.Create)
+		pools.GET("/:id", h.Admin.ProxyPool.GetByID)
+		pools.PUT("/:id", h.Admin.ProxyPool.Update)
+		pools.DELETE("/:id", h.Admin.ProxyPool.Delete)
+		pools.GET("/:id/proxies", h.Admin.ProxyPool.GetProxies)
+		pools.POST("/:id/proxies", h.Admin.ProxyPool.AssignProxies)
+		pools.DELETE("/:id/proxies", h.Admin.ProxyPool.RemoveProxies)
+		pools.POST("/:id/rebind", h.Admin.ProxyPool.Rebind)
+		pools.GET("/:id/rebind-logs", h.Admin.ProxyPool.RebindLogs)
+	}
 }
 
 func registerRedeemCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

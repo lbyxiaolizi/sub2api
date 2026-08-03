@@ -32,6 +32,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/promptrule"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxypool"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
@@ -1775,6 +1776,71 @@ func init() {
 	proxyDescExpiryWarnDays := proxyFields[10].Descriptor()
 	// proxy.DefaultExpiryWarnDays holds the default value on creation for the expiry_warn_days field.
 	proxy.DefaultExpiryWarnDays = proxyDescExpiryWarnDays.Default.(int)
+	// proxyDescPoolHealth is the schema descriptor for pool_health field.
+	proxyDescPoolHealth := proxyFields[12].Descriptor()
+	// proxy.DefaultPoolHealth holds the default value on creation for the pool_health field.
+	proxy.DefaultPoolHealth = proxyDescPoolHealth.Default.(string)
+	// proxy.PoolHealthValidator is a validator for the "pool_health" field. It is called by the builders before save.
+	proxy.PoolHealthValidator = proxyDescPoolHealth.Validators[0].(func(string) error)
+	// proxyDescPoolFailures is the schema descriptor for pool_failures field.
+	proxyDescPoolFailures := proxyFields[14].Descriptor()
+	// proxy.DefaultPoolFailures holds the default value on creation for the pool_failures field.
+	proxy.DefaultPoolFailures = proxyDescPoolFailures.Default.(int)
+	proxypoolMixin := schema.ProxyPool{}.Mixin()
+	proxypoolMixinHooks1 := proxypoolMixin[1].Hooks()
+	proxypool.Hooks[0] = proxypoolMixinHooks1[0]
+	proxypoolMixinInters1 := proxypoolMixin[1].Interceptors()
+	proxypool.Interceptors[0] = proxypoolMixinInters1[0]
+	proxypoolMixinFields0 := proxypoolMixin[0].Fields()
+	_ = proxypoolMixinFields0
+	proxypoolFields := schema.ProxyPool{}.Fields()
+	_ = proxypoolFields
+	// proxypoolDescCreatedAt is the schema descriptor for created_at field.
+	proxypoolDescCreatedAt := proxypoolMixinFields0[0].Descriptor()
+	// proxypool.DefaultCreatedAt holds the default value on creation for the created_at field.
+	proxypool.DefaultCreatedAt = proxypoolDescCreatedAt.Default.(func() time.Time)
+	// proxypoolDescUpdatedAt is the schema descriptor for updated_at field.
+	proxypoolDescUpdatedAt := proxypoolMixinFields0[1].Descriptor()
+	// proxypool.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	proxypool.DefaultUpdatedAt = proxypoolDescUpdatedAt.Default.(func() time.Time)
+	// proxypool.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	proxypool.UpdateDefaultUpdatedAt = proxypoolDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// proxypoolDescName is the schema descriptor for name field.
+	proxypoolDescName := proxypoolFields[0].Descriptor()
+	// proxypool.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	proxypool.NameValidator = func() func(string) error {
+		validators := proxypoolDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// proxypoolDescStatus is the schema descriptor for status field.
+	proxypoolDescStatus := proxypoolFields[2].Descriptor()
+	// proxypool.DefaultStatus holds the default value on creation for the status field.
+	proxypool.DefaultStatus = proxypoolDescStatus.Default.(string)
+	// proxypool.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	proxypool.StatusValidator = proxypoolDescStatus.Validators[0].(func(string) error)
+	// proxypoolDescHealthIntervalSeconds is the schema descriptor for health_interval_seconds field.
+	proxypoolDescHealthIntervalSeconds := proxypoolFields[3].Descriptor()
+	// proxypool.DefaultHealthIntervalSeconds holds the default value on creation for the health_interval_seconds field.
+	proxypool.DefaultHealthIntervalSeconds = proxypoolDescHealthIntervalSeconds.Default.(int)
+	// proxypoolDescFailureThreshold is the schema descriptor for failure_threshold field.
+	proxypoolDescFailureThreshold := proxypoolFields[4].Descriptor()
+	// proxypool.DefaultFailureThreshold holds the default value on creation for the failure_threshold field.
+	proxypool.DefaultFailureThreshold = proxypoolDescFailureThreshold.Default.(int)
+	// proxypoolDescAutoRebind is the schema descriptor for auto_rebind field.
+	proxypoolDescAutoRebind := proxypoolFields[5].Descriptor()
+	// proxypool.DefaultAutoRebind holds the default value on creation for the auto_rebind field.
+	proxypool.DefaultAutoRebind = proxypoolDescAutoRebind.Default.(bool)
 	redeemcodeFields := schema.RedeemCode{}.Fields()
 	_ = redeemcodeFields
 	// redeemcodeDescCode is the schema descriptor for code field.
