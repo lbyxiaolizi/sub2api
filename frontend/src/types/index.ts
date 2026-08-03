@@ -1139,6 +1139,8 @@ kiro_credit_unit_price_usd?: number
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
+  pool_id?: number | null
+  pool_name?: string
   concurrency: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
@@ -1445,6 +1447,7 @@ export interface CreateAccountRequest {
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  pool_id?: number | null
   concurrency?: number
   load_factor?: number | null
   priority?: number
@@ -1463,6 +1466,7 @@ export interface UpdateAccountRequest {
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  pool_id?: number | null
   concurrency?: number
   load_factor?: number | null
   priority?: number

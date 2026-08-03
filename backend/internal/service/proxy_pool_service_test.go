@@ -20,6 +20,8 @@ type fakePoolRepo struct {
 	rebinds      [][2]*int64      // [from, to(nil=direct)]
 	rebindErr    error
 	accountCount map[int64]int64
+	unassigned   []int64 // 池分配补全的待分配账号
+	assignments [][2]int64 // [accountID, proxyID] 池服务分配记录
 	logs         []ProxyPoolRebindLog
 }
 
@@ -183,6 +185,21 @@ func (f *fakePoolRepo) ListRebindLogs(ctx context.Context, poolID int64, limit i
 	return out, nil
 }
 
+func (f *fakePoolRepo) ListPoolUnassignedAccountIDs(ctx context.Context, poolID int64) ([]int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]int64, len(f.unassigned))
+	copy(out, f.unassigned)
+	return out, nil
+}
+
+func (f *fakePoolRepo) AssignAccountToProxy(ctx context.Context, accountID int64, proxyID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.assignments = append(f.assignments, [2]int64{accountID, proxyID})
+	return nil
+}
+
 // fakeProberURL 基于 URL 判定成功/延迟。
 
 type fakeProberURL struct {
@@ -308,6 +325,38 @@ func TestRebindUnhealthyDistribution(t *testing.T) {
 	require.Equal(t, int64(3), *repo.rebinds[0][0])
 	require.NotNil(t, repo.rebinds[0][1])
 	require.Equal(t, int64(1), *repo.rebinds[0][1]) // 候选按 ID 升序，第一个候选为 1
+}
+
+func TestAssignUnassignedBalancesAcrossHealthyProxies(t *testing.T) {
+	repo := newFakePoolRepo()
+	now := time.Now()
+	svc := NewProxyPoolService(repo, nil, nil, time.Minute)
+
+	// 池内 2 个健康代理；3 个待分配账号
+	p1 := mkPoolProxy(1, 1)
+	p1.PoolHealth = PoolHealthHealthy
+	p2 := mkPoolProxy(2, 1)
+	p2.PoolHealth = PoolHealthHealthy
+	repo.proxies[1] = p1
+	repo.proxies[2] = p2
+	repo.accountCount[1] = 5 // proxy 1 已有 5 个账号 → 应优先分到 proxy 2
+	repo.unassigned = []int64{10, 11, 12}
+
+	pool := &ProxyPool{ID: 1, Name: "pool", Status: StatusActive, HealthIntervalSeconds: 60, FailureThreshold: 2}
+	svc.assignUnassigned(context.Background(), pool, []*Proxy{p1, p2})
+
+	require.Len(t, repo.assignments, 3)
+	// 全部账号分配到账号数较少的 proxy 2
+	for _, a := range repo.assignments {
+		require.Equal(t, int64(2), a[1])
+	}
+	// 无健康代理时不分配
+	repo.unassigned = []int64{13}
+	repo.proxies[1].PoolHealth = PoolHealthUnhealthy
+	repo.proxies[2].PoolHealth = PoolHealthUnhealthy
+	svc.assignUnassigned(context.Background(), pool, []*Proxy{p1, p2})
+	require.Len(t, repo.assignments, 3)
+	_ = now
 }
 
 func TestRebindUnhealthyNoCandidateKeepsAccounts(t *testing.T) {

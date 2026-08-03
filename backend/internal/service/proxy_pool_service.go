@@ -152,6 +152,11 @@ func (s *ProxyPoolService) RunPool(ctx context.Context, pool *ProxyPool) int {
 	if pool.AutoRebind {
 		rebound = s.rebindUnhealthy(ctx, pool, activeProxies, now)
 	}
+
+	// 4. 为绑定池但尚未分配到池内代理的账号补分配（负载均衡到健康代理）。
+	//    发生在探测之后，确保拿到最新健康状态。
+	s.assignUnassigned(ctx, pool, activeProxies)
+
 	return rebound
 }
 
@@ -161,6 +166,50 @@ type poolProbeResult struct {
 }
 
 // probeAll 并发探测代理，返回 proxyID -> 结果（仅包含探测过的代理）。
+// assignUnassigned 为绑定池但 proxy_id 为空或不属于本池的账号分配健康代理。
+// 按账号数最少的健康代理优先（负载均衡）；无健康代理时跳过，下轮再试。
+func (s *ProxyPoolService) assignUnassigned(ctx context.Context, pool *ProxyPool, active []*Proxy) {
+	healthy := make([]*Proxy, 0, len(active))
+	for _, pp := range active {
+		if pp.PoolHealth == PoolHealthHealthy {
+			healthy = append(healthy, pp)
+		}
+	}
+	if len(healthy) == 0 {
+		return
+	}
+	accountIDs, err := s.repo.ListPoolUnassignedAccountIDs(ctx, pool.ID)
+	if err != nil {
+		log.Printf("[ProxyPool] pool %d list unassigned accounts failed: %v", pool.ID, err)
+		return
+	}
+	if len(accountIDs) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(healthy))
+	for _, p := range healthy {
+		ids = append(ids, p.ID)
+	}
+	counts, err := s.repo.CountAccountsByProxyIDs(ctx, ids)
+	if err != nil {
+		log.Printf("[ProxyPool] pool %d count accounts failed: %v", pool.ID, err)
+		return
+	}
+	sort.SliceStable(healthy, func(i, j int) bool { return counts[healthy[i].ID] < counts[healthy[j].ID] })
+	for _, accountID := range accountIDs {
+		assigned := false
+		for _, p := range healthy {
+			if err := s.repo.AssignAccountToProxy(ctx, accountID, p.ID); err == nil {
+				counts[p.ID]++
+				assigned = true
+				log.Printf("[ProxyPool] pool %d assigned account %d to proxy %d", pool.ID, accountID, p.ID)
+				break
+			}
+		}
+		_ = assigned
+	}
+}
+
 func (s *ProxyPoolService) probeAll(ctx context.Context, proxies []*Proxy) map[int64]poolProbeResult {
 	results := make(map[int64]poolProbeResult, len(proxies))
 	if s.prober == nil || len(proxies) == 0 {

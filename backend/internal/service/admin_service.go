@@ -382,6 +382,7 @@ type CreateAccountInput struct {
 	Credentials        map[string]any
 	Extra              map[string]any
 	ProxyID            *int64
+	PoolID             *int64 // 代理池绑定（选池时由池服务/创建逻辑分配池内健康代理）
 	Concurrency        int
 	Priority           int
 	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
@@ -413,6 +414,7 @@ type UpdateAccountInput struct {
 	Credentials           map[string]any
 	Extra                 map[string]any
 	ProxyID               *int64
+	PoolID                *int64 // 代理池绑定：nil=不改 0=解绑池 >0=绑定池
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）

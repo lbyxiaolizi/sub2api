@@ -210,6 +210,8 @@ type Account struct {
 	ProxyID                 *int64                         `json:"proxy_id"`
 	ProxyFallbackOriginID   *int64                         `json:"proxy_fallback_origin_id"`
 	ProxyFallbackOriginName *string                        `json:"proxy_fallback_origin_name,omitempty"`
+	PoolID                  *int64                         `json:"pool_id"`
+	PoolName                string                         `json:"pool_name,omitempty"`
 	Concurrency             int                            `json:"concurrency"`
 	LoadFactor              *int                           `json:"load_factor,omitempty"`
 	Priority                int                            `json:"priority"`

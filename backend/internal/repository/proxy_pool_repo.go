@@ -176,7 +176,12 @@ func (r *proxyPoolRepository) UpdatePool(ctx context.Context, pool *service.Prox
 }
 
 func (r *proxyPoolRepository) DeletePool(ctx context.Context, id int64) error {
-	_, err := r.client.ProxyPool.Delete().Where(proxypool.IDEQ(id)).Exec(ctx)
+	// 注意：ent 的 Delete() 走 SoftDeleteMixin，是软删除（UPDATE deleted_at），
+	// 已删除行的 name 仍占用 UNIQUE 约束，重建同名池会违反唯一约束。
+	// 管理端无回收站语义（列表自动过滤已删行），这里用原生 SQL 硬删；
+	// proxies.pool_id 为 ON DELETE SET NULL、rebind_logs.pool_id 为 ON DELETE
+	// CASCADE，硬删安全。
+	_, err := r.sql.ExecContext(ctx, `DELETE FROM proxy_pools WHERE id = $1`, id)
 	return err
 }
 
@@ -264,6 +269,41 @@ func (r *proxyPoolRepository) CountAccountsByProxyIDs(ctx context.Context, proxy
 		counts[proxyID] = count
 	}
 	return counts, rows.Err()
+}
+
+// ListPoolUnassignedAccountIDs 返回绑定该池但 proxy_id 为空或 proxy 不属于该池的账号 ID。
+func (r *proxyPoolRepository) ListPoolUnassignedAccountIDs(ctx context.Context, poolID int64) ([]int64, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT a.id
+		FROM accounts a
+		WHERE a.pool_id = $1 AND a.deleted_at IS NULL
+		  AND (a.proxy_id IS NULL OR NOT EXISTS (
+		      SELECT 1 FROM proxies p
+		      WHERE p.id = a.proxy_id AND p.pool_id = $1 AND p.deleted_at IS NULL
+		  ))
+		ORDER BY a.id`, poolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0, 8)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// AssignAccountToProxy 把单个账号改投到指定代理（池服务分配用）。
+func (r *proxyPoolRepository) AssignAccountToProxy(ctx context.Context, accountID int64, proxyID int64) error {
+	_, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts
+		SET proxy_id = $1, updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL`, proxyID, accountID)
+	return err
 }
 
 // RebindAccountsOffProxy 把绑定在 fromProxyID 上的活跃账号改投到 toProxyID

@@ -99,4 +99,10 @@ type ProxyPoolRepository interface {
 	RecordRebindLog(ctx context.Context, log *ProxyPoolRebindLog) error
 	// ListRebindLogs 返回池内最近的重绑日志（含代理名称，desc 排序）。
 	ListRebindLogs(ctx context.Context, poolID int64, limit int) ([]ProxyPoolRebindLog, error)
+
+	// ListPoolUnassignedAccountIDs 返回绑定该池但 proxy_id 为空或 proxy 不属于
+	// 该池的账号 ID（供池服务补齐分配）。
+	ListPoolUnassignedAccountIDs(ctx context.Context, poolID int64) ([]int64, error)
+	// AssignAccountToProxy 把单个账号改投到指定代理（池服务分配用）。
+	AssignAccountToProxy(ctx context.Context, accountID int64, proxyID int64) error
 }

@@ -2329,6 +2329,8 @@ type AccountMutation struct {
 	clearedgroups               bool
 	proxy                       *int64
 	clearedproxy                bool
+	pool                        *int64
+	clearedpool                 bool
 	parent                      *int64
 	clearedparent               bool
 	children                    map[int64]struct{}
@@ -2837,6 +2839,55 @@ func (m *AccountMutation) ProxyIDCleared() bool {
 func (m *AccountMutation) ResetProxyID() {
 	m.proxy = nil
 	delete(m.clearedFields, account.FieldProxyID)
+}
+
+// SetPoolID sets the "pool_id" field.
+func (m *AccountMutation) SetPoolID(i int64) {
+	m.pool = &i
+}
+
+// PoolID returns the value of the "pool_id" field in the mutation.
+func (m *AccountMutation) PoolID() (r int64, exists bool) {
+	v := m.pool
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPoolID returns the old "pool_id" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldPoolID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPoolID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPoolID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPoolID: %w", err)
+	}
+	return oldValue.PoolID, nil
+}
+
+// ClearPoolID clears the value of the "pool_id" field.
+func (m *AccountMutation) ClearPoolID() {
+	m.pool = nil
+	m.clearedFields[account.FieldPoolID] = struct{}{}
+}
+
+// PoolIDCleared returns if the "pool_id" field was cleared in this mutation.
+func (m *AccountMutation) PoolIDCleared() bool {
+	_, ok := m.clearedFields[account.FieldPoolID]
+	return ok
+}
+
+// ResetPoolID resets all changes to the "pool_id" field.
+func (m *AccountMutation) ResetPoolID() {
+	m.pool = nil
+	delete(m.clearedFields, account.FieldPoolID)
 }
 
 // SetProxyFallbackOriginID sets the "proxy_fallback_origin_id" field.
@@ -3960,6 +4011,33 @@ func (m *AccountMutation) ResetProxy() {
 	m.clearedproxy = false
 }
 
+// ClearPool clears the "pool" edge to the ProxyPool entity.
+func (m *AccountMutation) ClearPool() {
+	m.clearedpool = true
+	m.clearedFields[account.FieldPoolID] = struct{}{}
+}
+
+// PoolCleared reports if the "pool" edge to the ProxyPool entity was cleared.
+func (m *AccountMutation) PoolCleared() bool {
+	return m.PoolIDCleared() || m.clearedpool
+}
+
+// PoolIDs returns the "pool" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// PoolID instead. It exists only for internal usage by the builders.
+func (m *AccountMutation) PoolIDs() (ids []int64) {
+	if id := m.pool; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetPool resets all changes to the "pool" edge.
+func (m *AccountMutation) ResetPool() {
+	m.pool = nil
+	m.clearedpool = false
+}
+
 // SetParentID sets the "parent" edge to the Account entity by id.
 func (m *AccountMutation) SetParentID(id int64) {
 	m.parent = &id
@@ -4142,7 +4220,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 31)
+	fields := make([]string, 0, 32)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4172,6 +4250,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.proxy != nil {
 		fields = append(fields, account.FieldProxyID)
+	}
+	if m.pool != nil {
+		fields = append(fields, account.FieldPoolID)
 	}
 	if m.proxy_fallback_origin_id != nil {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
@@ -4264,6 +4345,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.Extra()
 	case account.FieldProxyID:
 		return m.ProxyID()
+	case account.FieldPoolID:
+		return m.PoolID()
 	case account.FieldProxyFallbackOriginID:
 		return m.ProxyFallbackOriginID()
 	case account.FieldConcurrency:
@@ -4335,6 +4418,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldExtra(ctx)
 	case account.FieldProxyID:
 		return m.OldProxyID(ctx)
+	case account.FieldPoolID:
+		return m.OldPoolID(ctx)
 	case account.FieldProxyFallbackOriginID:
 		return m.OldProxyFallbackOriginID(ctx)
 	case account.FieldConcurrency:
@@ -4455,6 +4540,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetProxyID(v)
+		return nil
+	case account.FieldPoolID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPoolID(v)
 		return nil
 	case account.FieldProxyFallbackOriginID:
 		v, ok := value.(int64)
@@ -4705,6 +4797,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	if m.FieldCleared(account.FieldProxyID) {
 		fields = append(fields, account.FieldProxyID)
 	}
+	if m.FieldCleared(account.FieldPoolID) {
+		fields = append(fields, account.FieldPoolID)
+	}
 	if m.FieldCleared(account.FieldProxyFallbackOriginID) {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
 	}
@@ -4769,6 +4864,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldProxyID:
 		m.ClearProxyID()
+		return nil
+	case account.FieldPoolID:
+		m.ClearPoolID()
 		return nil
 	case account.FieldProxyFallbackOriginID:
 		m.ClearProxyFallbackOriginID()
@@ -4850,6 +4948,9 @@ func (m *AccountMutation) ResetField(name string) error {
 	case account.FieldProxyID:
 		m.ResetProxyID()
 		return nil
+	case account.FieldPoolID:
+		m.ResetPoolID()
+		return nil
 	case account.FieldProxyFallbackOriginID:
 		m.ResetProxyFallbackOriginID()
 		return nil
@@ -4919,12 +5020,15 @@ func (m *AccountMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *AccountMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.groups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
 	if m.proxy != nil {
 		edges = append(edges, account.EdgeProxy)
+	}
+	if m.pool != nil {
+		edges = append(edges, account.EdgePool)
 	}
 	if m.parent != nil {
 		edges = append(edges, account.EdgeParent)
@@ -4952,6 +5056,10 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 		if id := m.proxy; id != nil {
 			return []ent.Value{*id}
 		}
+	case account.EdgePool:
+		if id := m.pool; id != nil {
+			return []ent.Value{*id}
+		}
 	case account.EdgeParent:
 		if id := m.parent; id != nil {
 			return []ent.Value{*id}
@@ -4974,7 +5082,7 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *AccountMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.removedgroups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
@@ -5015,12 +5123,15 @@ func (m *AccountMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *AccountMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.clearedgroups {
 		edges = append(edges, account.EdgeGroups)
 	}
 	if m.clearedproxy {
 		edges = append(edges, account.EdgeProxy)
+	}
+	if m.clearedpool {
+		edges = append(edges, account.EdgePool)
 	}
 	if m.clearedparent {
 		edges = append(edges, account.EdgeParent)
@@ -5042,6 +5153,8 @@ func (m *AccountMutation) EdgeCleared(name string) bool {
 		return m.clearedgroups
 	case account.EdgeProxy:
 		return m.clearedproxy
+	case account.EdgePool:
+		return m.clearedpool
 	case account.EdgeParent:
 		return m.clearedparent
 	case account.EdgeChildren:
@@ -5059,6 +5172,9 @@ func (m *AccountMutation) ClearEdge(name string) error {
 	case account.EdgeProxy:
 		m.ClearProxy()
 		return nil
+	case account.EdgePool:
+		m.ClearPool()
+		return nil
 	case account.EdgeParent:
 		m.ClearParent()
 		return nil
@@ -5075,6 +5191,9 @@ func (m *AccountMutation) ResetEdge(name string) error {
 		return nil
 	case account.EdgeProxy:
 		m.ResetProxy()
+		return nil
+	case account.EdgePool:
+		m.ResetPool()
 		return nil
 	case account.EdgeParent:
 		m.ResetParent()
