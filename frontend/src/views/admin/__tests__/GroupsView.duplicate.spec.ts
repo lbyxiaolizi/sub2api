@@ -31,6 +31,7 @@ vi.mock('@/api/admin', () => ({
       getModelsListCandidates,
       getUsageSummary,
       getCapacitySummary,
+      getLiveCapability: async () => ({ supported: false }),
       getAll: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
