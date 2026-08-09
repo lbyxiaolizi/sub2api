@@ -250,6 +250,19 @@ func (s *UserRepoSuite) TestDelete() {
 	s.Require().Error(err, "expected error after delete")
 }
 
+func (s *UserRepoSuite) TestDeleteSoftDeletesAndAllowsEmailReuse() {
+	original := s.mustCreateUser(&service.User{Email: "reusable-email@test.com"})
+	s.Require().NoError(s.repo.Delete(s.ctx, original.ID))
+
+	var softDeleted bool
+	s.Require().NoError(integrationDB.QueryRowContext(s.ctx,
+		`SELECT deleted_at IS NOT NULL FROM users WHERE id = $1`, original.ID).Scan(&softDeleted))
+	s.Require().True(softDeleted)
+
+	replacement := s.mustCreateUser(&service.User{Email: original.Email})
+	s.Require().NotEqual(original.ID, replacement.ID)
+}
+
 func (s *UserRepoSuite) TestDeleteRemovesAuthIdentitiesAndChannels() {
 	user := s.mustCreateUser(&service.User{Email: "delete-oauth@test.com"})
 

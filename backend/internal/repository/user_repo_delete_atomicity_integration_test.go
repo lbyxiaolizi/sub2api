@@ -39,7 +39,6 @@ func TestUserRepository_DeleteUser_AtomicWithAPIKeys(t *testing.T) {
 
 	t.Cleanup(func() {
 		// testEntClient 的写入不会自动回滚，best-effort 清理避免污染共享库。
-		_, _ = integrationDB.Exec(`DELETE FROM deleted_api_key_audits WHERE user_id = $1`, user.ID)
 		_, _ = integrationDB.Exec(`DELETE FROM api_keys WHERE user_id = $1`, user.ID)
 		_, _ = integrationDB.Exec(`DELETE FROM users WHERE id = $1`, user.ID)
 	})
@@ -66,10 +65,10 @@ func TestUserRepository_DeleteUser_AtomicWithAPIKeys(t *testing.T) {
 	require.NoError(t, err, "ListByUserID")
 	require.Len(t, keys, 2, "回滚后 2 个 API Key 必须仍为 active")
 
-	var auditCount int
+	var auditTableExists bool
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM deleted_api_key_audits WHERE user_id = $1`, user.ID).Scan(&auditCount))
-	require.Zero(t, auditCount, "回滚后不应有已提交的审计行")
+		`SELECT to_regclass('public.deleted_api_key_audits') IS NOT NULL`).Scan(&auditTableExists))
+	require.False(t, auditTableExists, "不得保留可存储已删凭据的审计表")
 
 	// --- Case 2: 外层事务提交 → 删 Key 与删 User 一起生效 ---
 	tx2, err := client.Tx(ctx)
@@ -90,6 +89,6 @@ func TestUserRepository_DeleteUser_AtomicWithAPIKeys(t *testing.T) {
 	require.Empty(t, keysAfter, "提交后 API Key 应全部被软删除")
 
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM deleted_api_key_audits WHERE user_id = $1`, user.ID).Scan(&auditCount))
-	require.Zero(t, auditCount, "提交后也不得保留被删 Key 的凭据材料")
+		`SELECT to_regclass('public.deleted_api_key_audits') IS NOT NULL`).Scan(&auditTableExists))
+	require.False(t, auditTableExists, "提交后也不得出现已删凭据审计表")
 }

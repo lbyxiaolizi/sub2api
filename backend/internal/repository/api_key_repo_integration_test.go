@@ -581,14 +581,10 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_TombstonesWithoutRetainingCredenti
 	s.Require().NotEqual("sk-del-audit-1", tombstone)
 	s.Require().Contains(tombstone, "__deleted__")
 
-	var auditCount int
-	auditRows, err := s.repo.sql.QueryContext(s.ctx,
-		`SELECT COUNT(*) FROM deleted_api_key_audits WHERE api_key_id = $1`, key.ID)
-	s.Require().NoError(err)
-	s.Require().True(auditRows.Next())
-	s.Require().NoError(auditRows.Scan(&auditCount))
-	s.Require().NoError(auditRows.Close())
-	s.Require().Zero(auditCount, "deleted credentials must not be retained")
+	var auditTableExists bool
+	s.Require().NoError(integrationDB.QueryRowContext(s.ctx,
+		`SELECT to_regclass('public.deleted_api_key_audits') IS NOT NULL`).Scan(&auditTableExists))
+	s.Require().False(auditTableExists, "deleted credential audit table must not exist")
 }
 
 func (s *APIKeyRepoSuite) TestDeleteWithAudit_RepeatIsIdempotent() {
