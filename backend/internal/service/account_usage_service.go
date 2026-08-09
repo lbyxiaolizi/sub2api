@@ -1509,6 +1509,17 @@ func codexWindowStatsStart(progress *UsageProgress, fallbackWindow time.Duration
 }
 
 func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {
+	if s.accountRepo == nil {
+		return nil, ErrAccountNotFound
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+
 	stats, err := s.usageLogRepo.GetAccountUsageStats(ctx, accountID, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("get account usage stats failed: %w", err)

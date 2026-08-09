@@ -33,6 +33,14 @@ func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, 
 	return nil
 }
 
+type missingAccountUsageRepo struct {
+	stubOpenAIAccountRepo
+}
+
+func (*missingAccountUsageRepo) GetByID(context.Context, int64) (*Account, error) {
+	return nil, ErrAccountNotFound
+}
+
 func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -205,6 +213,25 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	case got := <-repo.rateLimitCh:
 		t.Fatalf("不应将已耗尽的 codex extra 持久化为运行时限流状态: %v", got)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestAccountUsageService_GetAccountUsageStatsRejectsMissingAccount(t *testing.T) {
+	t.Parallel()
+	svc := &AccountUsageService{accountRepo: &missingAccountUsageRepo{}}
+
+	stats, err := svc.GetAccountUsageStats(
+		context.Background(),
+		404,
+		time.Now().Add(-time.Hour),
+		time.Now(),
+	)
+
+	if err != ErrAccountNotFound {
+		t.Fatalf("GetAccountUsageStats() error = %v, want %v", err, ErrAccountNotFound)
+	}
+	if stats != nil {
+		t.Fatalf("GetAccountUsageStats() = %#v, want nil", stats)
 	}
 }
 
