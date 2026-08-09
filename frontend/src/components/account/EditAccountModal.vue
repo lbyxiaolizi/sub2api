@@ -1581,6 +1581,7 @@
           <div>
             <label class="input-label">{{ t('admin.proxyPools.proxyPool') }}</label>
             <Select
+              data-testid="edit-account-pool-select"
               v-model="form.pool_id"
               :options="poolSelectOptions"
               :placeholder="t('admin.proxyPools.noPool')"
@@ -2932,8 +2933,11 @@ const onPoolSelectChange = (value: string | number | boolean | null) => {
 }
 
 // 选择具体代理：解除池绑定（提交时以 0 表达清除）。
-const onProxySelectChange = () => {
-  form.pool_id = 0
+const onProxySelectChange = (value: number | null) => {
+  // 选择代理池会把 proxy_id 联动清空为“直连”；只有显式选择具体代理才解绑池。
+  if (value !== null) {
+    form.pool_id = 0
+  }
 }
 
 const { t } = useI18n()
@@ -4429,11 +4433,14 @@ const handleSubmit = async () => {
     if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0
     }
-    // pool_id: null=未变更（后端忽略）；0=解绑池；>0=绑定池
-    if (updatePayload.pool_id === null) {
+    // 仅在管理员真正改变代理池选择时发送 pool_id；重复发送当前池会触发后端重新分配代理。
+    // 后端以 0 表达解绑，省略字段表达“不修改”。
+    const currentPoolID = props.account.pool_id ?? null
+    const selectedPoolID = form.pool_id == null ? null : Number(form.pool_id)
+    if (selectedPoolID === currentPoolID) {
       delete updatePayload.pool_id
-    } else if (updatePayload.pool_id === 0 || updatePayload.pool_id == null) {
-      updatePayload.pool_id = 0
+    } else {
+      updatePayload.pool_id = selectedPoolID ?? 0
     }
     if (form.expires_at === null) {
       updatePayload.expires_at = 0

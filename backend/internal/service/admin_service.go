@@ -134,6 +134,7 @@ type AdminService interface {
 	ListProxyPools(ctx context.Context) ([]ProxyPoolWithStats, error)
 	GetProxyPool(ctx context.Context, id int64) (*ProxyPool, error)
 	GetProxyPoolProxies(ctx context.Context, poolID int64) ([]ProxyWithAccountCount, error)
+	GetProxyPoolAccounts(ctx context.Context, poolID int64, page, pageSize int) ([]ProxyPoolAccountSummary, int64, error)
 	CreateProxyPool(ctx context.Context, input *CreateProxyPoolInput) (*ProxyPool, error)
 	UpdateProxyPool(ctx context.Context, id int64, input *UpdateProxyPoolInput) (*ProxyPool, error)
 	DeleteProxyPool(ctx context.Context, id int64) error
@@ -414,7 +415,7 @@ type UpdateAccountInput struct {
 	Credentials           map[string]any
 	Extra                 map[string]any
 	ProxyID               *int64
-	PoolID                *int64 // 代理池绑定：nil=不改 0=解绑池 >0=绑定池
+	PoolID                *int64   // 代理池绑定：nil=不改 0=解绑池 >0=绑定池
 	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
 	Priority              *int     // 使用指针区分"未提供"和"设置为0"
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
