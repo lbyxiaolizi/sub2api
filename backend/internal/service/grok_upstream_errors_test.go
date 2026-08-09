@@ -364,6 +364,27 @@ func TestHandleGrokAccountUpstreamErrorDefaultCooldownsRespectPoolMode(t *testin
 	})
 }
 
+func TestHandleGrokAccountUpstreamError405FailsOverWithoutAccountCooldown(t *testing.T) {
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{
+		ID:       4724,
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+	}
+	body := []byte(`{"error":{"message":"method not allowed"}}`)
+
+	svc.handleGrokAccountUpstreamError(
+		context.Background(), account, http.StatusMethodNotAllowed, nil, body,
+	)
+
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Nil(t, account.TempUnschedulableUntil)
+	require.True(t, svc.shouldFailoverGrokUpstreamError(http.StatusMethodNotAllowed, body))
+}
+
 func TestHandleGrokAccountUpstreamError403UsesConfiguredRule(t *testing.T) {
 	repo := &grokQuotaAccountRepo{}
 	svc := &OpenAIGatewayService{accountRepo: repo}

@@ -2074,9 +2074,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 // 能出图。在这里写 per-model 冷却，会让一次用错端点的请求把整个号池对正确的生图
 // 端点下线（#4828）。
 //
-// 但请求本身就从 /v1/images/* 入站时不适用——那种情况下被拒说明账号确实不具备
-// 该模型能力，冷却是必要的刹车：没有它，每个生图请求都会完整走一遍号池，对上游
-// 形成无上界的 400 放大。
+// 但请求本身就从 /v1/images/* 入站，或 /v1/responses 已明确识别为生图意图时不适用——
+// 这两种路径的拒绝都说明账号确实不具备该模型能力，冷却是必要的刹车：没有它，每个
+// 生图请求都会完整走一遍号池，对上游形成无上界的 400 放大。
 //
 // 请求模型与最终冷却键都要判：冷却键走的是 account.GetMappedModel，账号可能把
 // 文本别名映射到 gpt-image-*，只判请求模型会漏掉这种形态。
@@ -2084,7 +2084,7 @@ func shouldSkipCodexPlanGatedImageModelCooldown(ctx context.Context, reason, req
 	if reason != upstreamCodexPlanGatedModelReason {
 		return false
 	}
-	if OpenAIImagesEndpointFromContext(ctx) {
+	if OpenAIImagesEndpointFromContext(ctx) || OpenAIImageGenerationIntentFromContext(ctx) {
 		return false
 	}
 	return IsGPTImageGenerationModel(requestedModel) || IsGPTImageGenerationModel(modelKey)

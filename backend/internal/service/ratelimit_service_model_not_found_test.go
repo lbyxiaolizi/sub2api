@@ -464,9 +464,9 @@ func TestRateLimitService_HandleUpstreamError_CodexPlanGatedImageModelKeepsCoold
 	require.Equal(t, upstreamCodexPlanGatedModelReason, repo.modelRateLimitCalls[0].reason)
 }
 
-// 仅 WithOpenAIImageGenerationIntent（/v1/responses 因模型名自动置位）不算专用生图
-// 端点，仍按"用错端点"处理。
-func TestRateLimitService_HandleUpstreamError_CodexPlanGatedImageModelSkipsCooldownOnIntentOnly(t *testing.T) {
+// /v1/responses 已明确识别为生图意图时，plan-gated 拒绝同样代表真实能力缺失，
+// 必须保留冷却，避免每次请求都把整个号池重试一遍。
+func TestRateLimitService_HandleUpstreamError_CodexPlanGatedImageModelKeepsCooldownOnResponsesIntent(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}
 	account := openAICodexPlanGatedOAuthAccount()
@@ -481,7 +481,9 @@ func TestRateLimitService_HandleUpstreamError_CodexPlanGatedImageModelSkipsCoold
 	)
 
 	require.True(t, handled)
-	require.Empty(t, repo.modelRateLimitCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gpt-image-2", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, upstreamCodexPlanGatedModelReason, repo.modelRateLimitCalls[0].reason)
 }
 
 // 守卫口径必须与冷却键一致：冷却键走 account.GetMappedModel，账号可以把文本别名
