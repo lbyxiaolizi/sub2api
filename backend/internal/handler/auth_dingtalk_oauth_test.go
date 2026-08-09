@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -388,4 +389,42 @@ func TestResolveDingTalkDeptPath_MultiLevel(t *testing.T) {
 	path, err := handler.resolveDingTalkDeptPath(context.Background(), cli, 42)
 	require.NoError(t, err)
 	require.Equal(t, "研发部/AI研发", path)
+}
+
+func TestCompleteDingTalkOAuthRegistrationReturnsPendingWhenEmailVerificationRequired(t *testing.T) {
+	handler, client := newOAuthPendingFlowTestHandlerWithEmailVerification(t, false, "dingtalk@example.com", "135790")
+	ctx := context.Background()
+
+	session, err := client.PendingAuthSession.Create().
+		SetSessionToken("dingtalk-email-verification-session").
+		SetIntent(oauthIntentLogin).
+		SetProviderType("dingtalk").
+		SetProviderKey("dingtalk").
+		SetProviderSubject("dingtalk-email-verification-subject").
+		SetResolvedEmail("dingtalk@example.com").
+		SetBrowserSessionKey("dingtalk-email-verification-browser").
+		SetUpstreamIdentityClaims(map[string]any{"username": "dingtalk-user"}).
+		SetExpiresAt(time.Now().UTC().Add(10 * time.Minute)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/dingtalk/complete-registration", strings.NewReader(`{"invitation_code":"INVITE"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: oauthPendingSessionCookieName, Value: encodeCookieValue(session.SessionToken)})
+	req.AddCookie(&http.Cookie{Name: oauthPendingBrowserCookieName, Value: encodeCookieValue(session.BrowserSessionKey)})
+	ginCtx.Request = req
+
+	handler.CompleteDingTalkOAuthRegistration(ginCtx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, "pending_session", payload["auth_result"])
+	require.Equal(t, oauthPendingChoiceStep, payload["step"])
+	require.Equal(t, "email_verification_required", payload["choice_reason"])
+	userCount, err := client.User.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, userCount)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/mail"
 	"strings"
 	"time"
@@ -95,85 +94,6 @@ func (s *AuthService) VerifyOAuthEmailCode(ctx context.Context, email, verifyCod
 		return ErrServiceUnavailable
 	}
 	return s.emailService.VerifyCode(ctx, email, verifyCode)
-}
-
-// RegisterOAuthEmailAccount creates a local account from a third-party first
-// login after the user has verified a local email address.
-func (s *AuthService) RegisterOAuthEmailAccount(
-	ctx context.Context,
-	email string,
-	password string,
-	verifyCode string,
-	invitationCode string,
-	signupSource string,
-) (*TokenPair, *User, error) {
-	if s == nil {
-		return nil, nil, ErrServiceUnavailable
-	}
-	if s.settingService == nil || (!s.settingService.IsRegistrationEnabled(ctx) && !s.canBypassRegistrationDisabledForOAuth(ctx, signupSource)) {
-		return nil, nil, ErrRegDisabled
-	}
-
-	email = strings.TrimSpace(strings.ToLower(email))
-	if isReservedEmail(email) {
-		return nil, nil, ErrEmailReserved
-	}
-	if err := s.validateRegistrationEmailPolicy(ctx, email); err != nil {
-		slog.Error("oauth email register: policy rejected", "email", email, "error", err.Error())
-		return nil, nil, err
-	}
-	if err := s.VerifyOAuthEmailCode(ctx, email, verifyCode); err != nil {
-		slog.Error("oauth email register: verify code failed", "email", email, "error", err.Error())
-		return nil, nil, err
-	}
-
-	if _, err := s.validateOAuthRegistrationInvitation(ctx, invitationCode); err != nil {
-		slog.Error("oauth email register: invitation failed", "email", email, "error", err.Error())
-		return nil, nil, err
-	}
-
-	// 含 +别名 / Gmail 点号 / FQDN 根点变体归一化：该路径同样发放注册赠额，不能被单个收件箱刷号。
-	existsEmail, err := s.existsByEmailOrAlias(ctx, email)
-	if err != nil {
-		slog.Error("oauth email register: ExistsByEmail failed", "email", email, "error", err.Error())
-		return nil, nil, ErrServiceUnavailable
-	}
-	if existsEmail {
-		return nil, nil, ErrEmailExists
-	}
-
-	hashedPassword, err := s.HashPassword(password)
-	if err != nil {
-		return nil, nil, fmt.Errorf("hash password: %w", err)
-	}
-
-	signupSource = normalizeOAuthSignupSource(signupSource)
-	grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
-
-	user := &User{
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
-		Concurrency:  grantPlan.Concurrency,
-		Status:       StatusActive,
-		SignupSource: signupSource,
-	}
-
-	if err := s.userRepo.CreateWithEmailAliasGuard(ctx, user); err != nil {
-		if errors.Is(err, ErrEmailExists) {
-			return nil, nil, ErrEmailExists
-		}
-		slog.Error("oauth email register: userRepo.Create failed", "email", email, "signup_source", signupSource, "error", err.Error())
-		return nil, nil, ErrServiceUnavailable
-	}
-
-	tokenPair, err := s.GenerateTokenPair(ctx, user, "")
-	if err != nil {
-		_ = s.RollbackOAuthEmailAccountCreation(ctx, user.ID, "")
-		return nil, nil, fmt.Errorf("generate token pair: %w", err)
-	}
-	return tokenPair, user, nil
 }
 
 // RegisterVerifiedOAuthEmailAccount creates a local account from an OAuth

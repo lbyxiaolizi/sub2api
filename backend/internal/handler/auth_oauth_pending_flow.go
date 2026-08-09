@@ -1734,6 +1734,10 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 	}
 
 	email := strings.TrimSpace(strings.ToLower(req.Email))
+	if err := h.authService.VerifyOAuthEmailCode(c.Request.Context(), email, strings.TrimSpace(req.VerifyCode)); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	existingUser, err := findUserByNormalizedEmail(c.Request.Context(), client, email)
 	if err != nil {
 		switch {
@@ -1766,11 +1770,10 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 		return
 	}
 
-	tokenPair, user, err := h.authService.RegisterOAuthEmailAccount(
+	tokenPair, user, err := h.authService.RegisterVerifiedOAuthEmailAccount(
 		c.Request.Context(),
 		email,
 		req.Password,
-		strings.TrimSpace(req.VerifyCode),
 		strings.TrimSpace(req.InvitationCode),
 		strings.TrimSpace(session.ProviderType),
 	)

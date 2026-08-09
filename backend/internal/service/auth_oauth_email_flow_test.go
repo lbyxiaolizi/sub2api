@@ -147,7 +147,7 @@ func newOAuthEmailFlowAuthService(
 	)
 }
 
-func TestRegisterOAuthEmailAccountRollsBackCreatedUserWhenTokenPairGenerationFails(t *testing.T) {
+func TestRegisterVerifiedOAuthEmailAccountRollsBackCreatedUserWhenTokenPairGenerationFails(t *testing.T) {
 	userRepo := &userRepoStub{nextID: 42}
 	redeemRepo := &redeemCodeRepoStub{
 		codesByCode: map[string]*RedeemCode{
@@ -180,11 +180,10 @@ func TestRegisterOAuthEmailAccountRollsBackCreatedUserWhenTokenPairGenerationFai
 		nil,
 	)
 
-	tokenPair, user, err := authService.RegisterOAuthEmailAccount(
+	tokenPair, user, err := authService.RegisterVerifiedOAuthEmailAccount(
 		context.Background(),
 		"fresh@example.com",
 		"secret-123",
-		"246810",
 		"INVITE123",
 		"oidc",
 	)
@@ -199,7 +198,7 @@ func TestRegisterOAuthEmailAccountRollsBackCreatedUserWhenTokenPairGenerationFai
 	require.Empty(t, redeemRepo.updateCalls)
 }
 
-func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *testing.T) {
+func TestRegisterVerifiedOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *testing.T) {
 	userRepo := &userRepoStub{nextID: 42}
 	emailCache := &emailCacheStub{
 		data: &VerificationCodeData{
@@ -221,11 +220,10 @@ func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *tes
 		nil,
 	)
 
-	tokenPair, user, err := authService.RegisterOAuthEmailAccount(
+	tokenPair, user, err := authService.RegisterVerifiedOAuthEmailAccount(
 		context.Background(),
 		"fresh@example.com",
 		"secret-123",
-		"246810",
 		"",
 		" OIDC ",
 	)
@@ -237,7 +235,7 @@ func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *tes
 	require.Equal(t, "oidc", userRepo.created[0].SignupSource)
 }
 
-func TestRegisterOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T) {
+func TestRegisterVerifiedOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T) {
 	tests := []struct {
 		name         string
 		email        string
@@ -281,11 +279,10 @@ func TestRegisterOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T)
 				nil,
 			)
 
-			tokenPair, user, err := authService.RegisterOAuthEmailAccount(
+			tokenPair, user, err := authService.RegisterVerifiedOAuthEmailAccount(
 				context.Background(),
 				tt.email,
 				"secret-123",
-				"246810",
 				"",
 				tt.signupSource,
 			)
@@ -299,7 +296,7 @@ func TestRegisterOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T)
 	}
 }
 
-func TestRegisterOAuthEmailAccountFallsBackUnknownSignupSourceToEmail(t *testing.T) {
+func TestRegisterVerifiedOAuthEmailAccountFallsBackUnknownSignupSourceToEmail(t *testing.T) {
 	userRepo := &userRepoStub{nextID: 43}
 	emailCache := &emailCacheStub{
 		data: &VerificationCodeData{
@@ -321,11 +318,10 @@ func TestRegisterOAuthEmailAccountFallsBackUnknownSignupSourceToEmail(t *testing
 		nil,
 	)
 
-	tokenPair, user, err := authService.RegisterOAuthEmailAccount(
+	tokenPair, user, err := authService.RegisterVerifiedOAuthEmailAccount(
 		context.Background(),
 		"fallback@example.com",
 		"secret-123",
-		"246810",
 		"",
 		"unknown-provider",
 	)
