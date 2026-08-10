@@ -10,6 +10,7 @@ const {
   getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
+  listProxyPools,
   showError
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
@@ -18,6 +19,7 @@ const {
   getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
+  listProxyPools: vi.fn(),
   showError: vi.fn()
 }))
 
@@ -38,6 +40,9 @@ vi.mock('@/api/admin', () => ({
     },
     groups: {
       getAll: getAllGroups
+    },
+    proxyPools: {
+      list: listProxyPools
     }
   }
 }))
@@ -143,6 +148,7 @@ describe('admin AccountsView select all filtered results', () => {
     getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    listProxyPools.mockReset()
     showError.mockReset()
 
     listWithEtag.mockResolvedValue({
@@ -154,6 +160,7 @@ describe('admin AccountsView select all filtered results', () => {
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    listProxyPools.mockResolvedValue([])
   })
 
   it('selects all matching IDs in one commit and clears the selection when filters change', async () => {
@@ -195,6 +202,11 @@ describe('admin AccountsView select all filtered results', () => {
 
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('0')
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('false')
+
+    // Let the debounced filter reload settle before the next test resets its API mocks.
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    await flushPromises()
+    wrapper.unmount()
   })
 
   it('keeps the original page selection when loading all results fails', async () => {
@@ -224,5 +236,6 @@ describe('admin AccountsView select all filtered results', () => {
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('20')
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('false')
     expect(showError).toHaveBeenCalledWith('admin.accounts.bulkActions.selectAllFailed')
+    wrapper.unmount()
   })
 })

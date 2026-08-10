@@ -20,6 +20,10 @@ type ProxyPoolRepoSuite struct {
 	proxyRepo *proxyRepository
 }
 
+func newProxyPoolRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *proxyPoolRepository {
+	return &proxyPoolRepository{client: client, sql: sqlq}
+}
+
 func (s *ProxyPoolRepoSuite) SetupTest() {
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())

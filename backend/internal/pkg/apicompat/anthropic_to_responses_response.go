@@ -415,7 +415,7 @@ func anthToResHandleContentBlockDelta(evt *AnthropicStreamEvent, state *Anthropi
 			return nil
 		}
 		// Accumulate the fragment so terminal events can carry the full tool input.
-		state.CurrentArgs.WriteString(evt.Delta.PartialJSON)
+		_, _ = state.CurrentArgs.WriteString(evt.Delta.PartialJSON)
 		if state.CurrentItemType == "custom_tool_call" {
 			return nil
 		}

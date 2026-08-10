@@ -594,14 +594,6 @@ func kiroEndpointModeForRequest(account *Account, parsed *ParsedRequest) string 
 	return parsed.Group.EffectiveKiroEndpointMode()
 }
 
-func (s *GatewayService) buildKiroPayloadForAccount(ctx context.Context, account *Account, parsed *ParsedRequest, anthropicBody []byte, modelID, token, requestModel string, headers http.Header) (*kiropkg.KiroBuildResult, error) {
-	var profileArn string
-	if kiroEndpointModeForRequest(account, parsed) == KiroEndpointModeKRS {
-		profileArn = kiroResolveProfileArnForKRS(account)
-	}
-	return s.buildKiroPayloadForAccountWithArn(ctx, account, parsed, anthropicBody, modelID, token, requestModel, headers, profileArn)
-}
-
 // buildKiroPayloadForAccountWithArn 使用显式 profileArn 构建 Kiro 请求 payload。
 // auto 模式下 Q/KRS 端点需要不同 profileArn，调用方按端点维度传入。
 func (s *GatewayService) buildKiroPayloadForAccountWithArn(ctx context.Context, account *Account, parsed *ParsedRequest, anthropicBody []byte, modelID, token, requestModel string, headers http.Header, profileArn string) (*kiropkg.KiroBuildResult, error) {

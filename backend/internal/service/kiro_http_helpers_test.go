@@ -13,6 +13,14 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func (s *GatewayService) buildKiroPayloadForAccount(ctx context.Context, account *Account, parsed *ParsedRequest, anthropicBody []byte, modelID, token, requestModel string, headers http.Header) (*kiropkg.KiroBuildResult, error) {
+	var profileArn string
+	if kiroEndpointModeForRequest(account, parsed) == KiroEndpointModeKRS {
+		profileArn = kiroResolveProfileArnForKRS(account)
+	}
+	return s.buildKiroPayloadForAccountWithArn(ctx, account, parsed, anthropicBody, modelID, token, requestModel, headers, profileArn)
+}
+
 func TestBuildKiroAccountKeyIgnoresAccessToken(t *testing.T) {
 	accountA := &Account{
 		ID: 99,

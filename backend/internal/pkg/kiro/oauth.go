@@ -651,11 +651,12 @@ func ParseImportedToken(tokenJSON string, deviceRegistrationJSON string) (*Token
 	if !IsValidKiroProvider(token.Provider) {
 		return nil, fmt.Errorf("unsupported or missing kiro provider: %q (must be one of Google/Github/BuilderId/Enterprise/ExternalIdp)", token.Provider)
 	}
-	if token.AuthMethod == "idc" {
+	switch token.AuthMethod {
+	case "idc":
 		if strings.TrimSpace(token.Region) == "" {
 			token.Region = defaultIDCRegion
 		}
-	} else if token.AuthMethod == "external_idp" {
+	case "external_idp":
 		token.Provider = ProviderExternalIdp
 		token.ClientID = strings.TrimSpace(token.ClientID)
 		token.TokenEndpoint = strings.TrimSpace(token.TokenEndpoint)
