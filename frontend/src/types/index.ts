@@ -919,6 +919,8 @@ export interface Proxy {
   protocol: ProxyProtocol
   host: string
   port: number
+  force_http1: boolean
+  disable_keep_alive: boolean
   username: string | null
   password?: string | null
   status: 'active' | 'inactive' | 'expired'
@@ -1583,6 +1585,8 @@ export interface CreateProxyRequest {
   fallback_mode?: 'none' | 'proxy' | 'direct'
   backup_proxy_id?: number | null
   expiry_warn_days?: number
+	force_http1?: boolean
+	disable_keep_alive?: boolean
 }
 
 export interface UpdateProxyRequest {
@@ -1597,6 +1601,8 @@ export interface UpdateProxyRequest {
   fallback_mode?: 'none' | 'proxy' | 'direct'
   backup_proxy_id?: number | null
   expiry_warn_days?: number
+	force_http1?: boolean
+	disable_keep_alive?: boolean
 }
 
 export interface AdminDataPayload {
@@ -1618,6 +1624,8 @@ export interface AdminDataProxy {
   username?: string | null
   password?: string | null
   status: 'active' | 'inactive'
+  force_http1?: boolean
+  disable_keep_alive?: boolean
 }
 
 export interface AdminDataAccount {

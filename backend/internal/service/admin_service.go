@@ -129,7 +129,6 @@ type AdminService interface {
 	CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error)
 	TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error)
 	CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error)
-
 	// Proxy Pool management
 	ListProxyPools(ctx context.Context) ([]ProxyPoolWithStats, error)
 	GetProxyPool(ctx context.Context, id int64) (*ProxyPool, error)
@@ -521,30 +520,34 @@ type BulkUpdateAccountsResult struct {
 }
 
 type CreateProxyInput struct {
-	Name           string
-	Protocol       string
-	Host           string
-	Port           int
-	Username       string
-	Password       string
-	ExpiresAt      *time.Time
-	FallbackMode   string
-	BackupProxyID  *int64
-	ExpiryWarnDays int
+	Name             string
+	Protocol         string
+	Host             string
+	Port             int
+	Username         string
+	Password         string
+	ExpiresAt        *time.Time
+	FallbackMode     string
+	BackupProxyID    *int64
+	ExpiryWarnDays   int
+	ForceHTTP1       bool
+	DisableKeepAlive bool
 }
 
 type UpdateProxyInput struct {
-	Name           string
-	Protocol       string
-	Host           string
-	Port           int
-	Username       string
-	Password       string
-	Status         string
-	ExpiresAt      *time.Time
-	FallbackMode   string
-	BackupProxyID  *int64
-	ExpiryWarnDays int
+	Name             string
+	Protocol         string
+	Host             string
+	Port             int
+	Username         string
+	Password         string
+	Status           string
+	ExpiresAt        *time.Time
+	FallbackMode     string
+	BackupProxyID    *int64
+	ExpiryWarnDays   int
+	ForceHTTP1       *bool
+	DisableKeepAlive *bool
 }
 
 type GenerateRedeemCodesInput struct {

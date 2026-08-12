@@ -351,15 +351,41 @@ type Proxy struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	ExpiresAt      *time.Time `json:"expires_at"`
-	FallbackMode   string     `json:"fallback_mode"`
-	BackupProxyID  *int64     `json:"backup_proxy_id"`
-	ExpiryWarnDays int        `json:"expiry_warn_days"`
+	ExpiresAt        *time.Time `json:"expires_at"`
+	FallbackMode     string     `json:"fallback_mode"`
+	BackupProxyID    *int64     `json:"backup_proxy_id"`
+	ExpiryWarnDays   int        `json:"expiry_warn_days"`
+	ForceHTTP1       bool       `json:"force_http1"`
+	DisableKeepAlive bool       `json:"disable_keep_alive"`
+	PoolID           *int64     `json:"pool_id,omitempty"`
+	PoolHealth       string     `json:"pool_health,omitempty"`
+	PoolCheckedAt    *time.Time `json:"pool_checked_at,omitempty"`
+	PoolFailures     int        `json:"pool_failures,omitempty"`
+}
 
-	PoolID        *int64     `json:"pool_id,omitempty"`
-	PoolHealth    string     `json:"pool_health,omitempty"`
-	PoolCheckedAt *time.Time `json:"pool_checked_at,omitempty"`
-	PoolFailures  int        `json:"pool_failures,omitempty"`
+type ProxyWithAccountCount struct {
+	Proxy
+	AccountCount   int64  `json:"account_count"`
+	LatencyMs      *int64 `json:"latency_ms,omitempty"`
+	LatencyStatus  string `json:"latency_status,omitempty"`
+	LatencyMessage string `json:"latency_message,omitempty"`
+	IPAddress      string `json:"ip_address,omitempty"`
+	Country        string `json:"country,omitempty"`
+	CountryCode    string `json:"country_code,omitempty"`
+	Region         string `json:"region,omitempty"`
+	City           string `json:"city,omitempty"`
+	QualityStatus  string `json:"quality_status,omitempty"`
+	QualityScore   *int   `json:"quality_score,omitempty"`
+	QualityGrade   string `json:"quality_grade,omitempty"`
+	QualitySummary string `json:"quality_summary,omitempty"`
+	QualityChecked *int64 `json:"quality_checked,omitempty"`
+}
+
+// AdminProxy 是管理员接口使用的 proxy DTO（包含密码等敏感字段）。
+// 注意：普通接口不得使用此 DTO。
+type AdminProxy struct {
+	Proxy
+	Password string `json:"password,omitempty"`
 }
 
 // AdminProxyPool 代理池 DTO。
@@ -395,31 +421,6 @@ type AdminProxyPoolAccountSummary struct {
 	Status    string `json:"status"`
 	ProxyID   *int64 `json:"proxy_id,omitempty"`
 	ProxyName string `json:"proxy_name,omitempty"`
-}
-
-type ProxyWithAccountCount struct {
-	Proxy
-	AccountCount   int64  `json:"account_count"`
-	LatencyMs      *int64 `json:"latency_ms,omitempty"`
-	LatencyStatus  string `json:"latency_status,omitempty"`
-	LatencyMessage string `json:"latency_message,omitempty"`
-	IPAddress      string `json:"ip_address,omitempty"`
-	Country        string `json:"country,omitempty"`
-	CountryCode    string `json:"country_code,omitempty"`
-	Region         string `json:"region,omitempty"`
-	City           string `json:"city,omitempty"`
-	QualityStatus  string `json:"quality_status,omitempty"`
-	QualityScore   *int   `json:"quality_score,omitempty"`
-	QualityGrade   string `json:"quality_grade,omitempty"`
-	QualitySummary string `json:"quality_summary,omitempty"`
-	QualityChecked *int64 `json:"quality_checked,omitempty"`
-}
-
-// AdminProxy 是管理员接口使用的 proxy DTO（包含密码等敏感字段）。
-// 注意：普通接口不得使用此 DTO。
-type AdminProxy struct {
-	Proxy
-	Password string `json:"password,omitempty"`
 }
 
 // AdminProxyWithAccountCount 是管理员接口使用的带账号统计的 proxy DTO。
