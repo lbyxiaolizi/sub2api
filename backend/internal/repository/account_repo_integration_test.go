@@ -170,13 +170,42 @@ func (s *AccountRepoSuite) TestCreate() {
 	s.Require().Equal("test-create", got.Name)
 }
 
-func (s *AccountRepoSuite) TestCreateAndUnrelatedUpdatePreservePoolID() {
-	pool, err := s.client.ProxyPool.Create().SetName("account-pool-persistence").Save(s.ctx)
+func (s *AccountRepoSuite) TestCreatePersistsPoolIDWhenPoolHasNoHealthyProxy() {
+	pool, err := s.client.ProxyPool.Create().SetName("account-pool-empty-on-create").Save(s.ctx)
+	s.Require().NoError(err)
+	proxyCount, err := pool.QueryProxies().Count(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Zero(proxyCount)
+
+	poolID := pool.ID
+	account := &service.Account{
+		Name:        "pool-bound-account-without-healthy-proxy",
+		Platform:    service.PlatformAnthropic,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{},
+		Extra:       map[string]any{},
+		Concurrency: 1,
+		Priority:    1,
+		Schedulable: true,
+		PoolID:      &poolID,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, account))
+
+	created, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(created.PoolID)
+	s.Require().Equal(poolID, *created.PoolID)
+	s.Require().Nil(created.ProxyID)
+}
+
+func (s *AccountRepoSuite) TestGetByIDThenUnrelatedUpdatePreservesPoolID() {
+	pool, err := s.client.ProxyPool.Create().SetName("account-pool-unrelated-update").Save(s.ctx)
 	s.Require().NoError(err)
 
 	poolID := pool.ID
 	account := &service.Account{
-		Name:        "pool-bound-account",
+		Name:        "pool-bound-account-before-update",
 		Platform:    service.PlatformAnthropic,
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,

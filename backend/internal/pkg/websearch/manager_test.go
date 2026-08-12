@@ -314,6 +314,16 @@ func TestNewHTTPClient_ValidSOCKS5Proxy(t *testing.T) {
 	require.NotNil(t, c)
 }
 
+func TestNewHTTPClient_ProxyTransportOptions(t *testing.T) {
+	c, err := newHTTPClient("http://proxy.example.com:8080?_sub2api_force_http1=1&_sub2api_disable_keep_alive=true")
+	require.NoError(t, err)
+	transport, ok := c.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.False(t, transport.ForceAttemptHTTP2)
+	require.NotNil(t, transport.TLSNextProto)
+	require.True(t, transport.DisableKeepAlives)
+}
+
 // --- ResetUsage ---
 
 func TestManager_ResetUsage_NilRedis(t *testing.T) {

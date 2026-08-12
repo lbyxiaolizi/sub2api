@@ -52,9 +52,15 @@ func getSharedReqClient(opts reqClientOptions) (*req.Client, error) {
 	if opts.Impersonate {
 		client = client.ImpersonateChrome()
 	}
-	trimmed, _, err := proxyurl.Parse(opts.ProxyURL)
+	trimmed, _, transportOptions, err := proxyurl.ParseWithTransportOptions(opts.ProxyURL)
 	if err != nil {
 		return nil, err
+	}
+	if transportOptions.RequiresHTTP1() {
+		client = client.EnableForceHTTP1()
+	}
+	if transportOptions.DisableKeepAlive {
+		client = client.DisableKeepAlives()
 	}
 	if trimmed != "" {
 		client.SetProxyURL(trimmed)

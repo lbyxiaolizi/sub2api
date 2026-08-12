@@ -31,6 +31,22 @@ func TestRefreshSocialTokenInvalidGrantReturnsTypedError(t *testing.T) {
 	require.Contains(t, invalid.Body, "invalid_grant")
 }
 
+func TestNewHTTPClientAppliesProxyTransportOptions(t *testing.T) {
+	client, err := newHTTPClient("http://proxy.example.com:8080?_sub2api_force_http1=1&_sub2api_disable_keep_alive=true")
+	require.NoError(t, err)
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.False(t, transport.ForceAttemptHTTP2)
+	require.NotNil(t, transport.TLSNextProto)
+	require.True(t, transport.DisableKeepAlives)
+
+	req, err := http.NewRequest(http.MethodGet, "http://upstream.example.com", nil)
+	require.NoError(t, err)
+	configuredProxy, err := transport.Proxy(req)
+	require.NoError(t, err)
+	require.Equal(t, "http://proxy.example.com:8080", configuredProxy.String())
+}
+
 func TestRefreshIDCTokenInvalidGrantReturnsTypedError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/token", r.URL.Path)

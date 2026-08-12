@@ -33,6 +33,20 @@ var (
 	ErrProxyPoolRunInProgress = infraerrors.Conflict("PROXY_POOL_RUN_IN_PROGRESS", "proxy pool sweep is already in progress")
 )
 
+func (s *adminServiceImpl) requireProxyPool(ctx context.Context, id int64) (*ProxyPool, error) {
+	if s.poolRepo == nil {
+		return nil, ErrProxyPoolNotFound
+	}
+	pool, err := s.poolRepo.GetPoolByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if pool == nil {
+		return nil, ErrProxyPoolNotFound
+	}
+	return pool, nil
+}
+
 // ListProxyPools 返回全部池（含代理统计）。
 func (s *adminServiceImpl) ListProxyPools(ctx context.Context) ([]ProxyPoolWithStats, error) {
 	if s.poolRepo == nil {
@@ -43,20 +57,13 @@ func (s *adminServiceImpl) ListProxyPools(ctx context.Context) ([]ProxyPoolWithS
 
 // GetProxyPool 获取单个池。
 func (s *adminServiceImpl) GetProxyPool(ctx context.Context, id int64) (*ProxyPool, error) {
-	if s.poolRepo == nil {
-		return nil, ErrProxyPoolNotFound
-	}
-	pool, err := s.poolRepo.GetPoolByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return pool, nil
+	return s.requireProxyPool(ctx, id)
 }
 
 // GetProxyPoolProxies 返回池内代理（含账号数与延迟/质量展示字段）。
 func (s *adminServiceImpl) GetProxyPoolProxies(ctx context.Context, poolID int64) ([]ProxyWithAccountCount, error) {
-	if s.poolRepo == nil {
-		return nil, nil
+	if _, err := s.requireProxyPool(ctx, poolID); err != nil {
+		return nil, err
 	}
 	proxies, err := s.poolRepo.ListPoolProxies(ctx, poolID)
 	if err != nil {
@@ -83,8 +90,8 @@ func (s *adminServiceImpl) GetProxyPoolProxies(ctx context.Context, poolID int64
 
 // GetProxyPoolAccounts 分页返回池绑定账号及其当前实际代理。
 func (s *adminServiceImpl) GetProxyPoolAccounts(ctx context.Context, poolID int64, page, pageSize int) ([]ProxyPoolAccountSummary, int64, error) {
-	if s.poolRepo == nil {
-		return nil, 0, nil
+	if _, err := s.requireProxyPool(ctx, poolID); err != nil {
+		return nil, 0, err
 	}
 	if page < 1 {
 		page = 1
@@ -149,7 +156,7 @@ func (s *adminServiceImpl) UpdateProxyPool(ctx context.Context, id int64, input 
 	if s.poolRepo == nil {
 		return nil, ErrProxyPoolNotFound
 	}
-	existing, err := s.poolRepo.GetPoolByID(ctx, id)
+	existing, err := s.requireProxyPool(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +217,7 @@ func (s *adminServiceImpl) AssignProxiesToPool(ctx context.Context, poolID int64
 	if s.poolRepo == nil {
 		return 0, errors.New("proxy pool repository unavailable")
 	}
-	if _, err := s.poolRepo.GetPoolByID(ctx, poolID); err != nil {
+	if _, err := s.requireProxyPool(ctx, poolID); err != nil {
 		return 0, err
 	}
 	if len(proxyIDs) == 0 {
@@ -223,6 +230,9 @@ func (s *adminServiceImpl) AssignProxiesToPool(ctx context.Context, poolID int64
 func (s *adminServiceImpl) RemoveProxiesFromPool(ctx context.Context, poolID int64, proxyIDs []int64) (int64, error) {
 	if s.poolRepo == nil {
 		return 0, errors.New("proxy pool repository unavailable")
+	}
+	if _, err := s.requireProxyPool(ctx, poolID); err != nil {
+		return 0, err
 	}
 	// 只移出属于该池的代理，避免误动其它池成员
 	proxies, err := s.poolRepo.ListPoolProxies(ctx, poolID)
@@ -251,12 +261,9 @@ func (s *adminServiceImpl) RunProxyPoolRebind(ctx context.Context, poolID int64)
 	if s.poolRepo == nil {
 		return 0, ErrProxyPoolNotFound
 	}
-	pool, err := s.poolRepo.GetPoolByID(ctx, poolID)
+	pool, err := s.requireProxyPool(ctx, poolID)
 	if err != nil {
 		return 0, err
-	}
-	if pool == nil {
-		return 0, ErrProxyPoolNotFound
 	}
 	if !pool.IsActive() {
 		return 0, errors.New("proxy pool is disabled; enable it first")
@@ -270,8 +277,8 @@ func (s *adminServiceImpl) RunProxyPoolRebind(ctx context.Context, poolID int64)
 
 // ListProxyPoolRebindLogs 返回池内最近的重绑日志。
 func (s *adminServiceImpl) ListProxyPoolRebindLogs(ctx context.Context, poolID int64, limit int) ([]ProxyPoolRebindLog, error) {
-	if s.poolRepo == nil {
-		return nil, nil
+	if _, err := s.requireProxyPool(ctx, poolID); err != nil {
+		return nil, err
 	}
 	return s.poolRepo.ListRebindLogs(ctx, poolID, limit)
 }

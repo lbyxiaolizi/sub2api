@@ -7,9 +7,12 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,6 +121,32 @@ func TestVertexServiceAccountHTTPClientRecordsDependency(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, response.Body.Close())
 	require.Contains(t, collector.HeaderValue(time.Now(), "bypass"), "dep_http;dur=")
+}
+
+func TestVertexServiceAccountHTTPClientAppliesProxyTransportOptions(t *testing.T) {
+	var connections atomic.Int32
+	proxy := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "2")
+		_, _ = io.WriteString(w, "ok")
+	}))
+	proxy.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+	proxy.Start()
+	defer proxy.Close()
+
+	client, err := newVertexServiceAccountHTTPClient(proxy.URL + "?_sub2api_force_http1=1&_sub2api_disable_keep_alive=true")
+	require.NoError(t, err)
+	for range 2 {
+		response, requestErr := client.Get("http://upstream.invalid/token")
+		require.NoError(t, requestErr)
+		_, requestErr = io.Copy(io.Discard, response.Body)
+		require.NoError(t, requestErr)
+		require.NoError(t, response.Body.Close())
+	}
+	require.Equal(t, int32(2), connections.Load())
 }
 
 func TestExchangeVertexServiceAccountTokenUsesProxy(t *testing.T) {

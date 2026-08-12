@@ -344,6 +344,7 @@ function mountModal(account = buildAccount(), pools: ProxyPool[] = []) {
         Select: SelectStub,
         Icon: true,
         ProxySelector: ProxySelectorStub,
+        ProxyAdBanner: true,
         GroupSelector: GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub
       }

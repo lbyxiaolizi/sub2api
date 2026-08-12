@@ -241,15 +241,17 @@ func grokOAuthHasExplicitEntitlementDenial(body string) bool {
 }
 
 func createGrokHTTPClient(proxyURL string, noRedirect bool) (*http.Client, error) {
-	transport := &http.Transport{}
-	if strings.TrimSpace(proxyURL) != "" {
-		parsed, err := url.Parse(proxyURL)
-		if err != nil {
-			return nil, err
-		}
-		transport.Proxy = http.ProxyURL(parsed)
+	sharedClient, err := sharedhttp.GetClient(sharedhttp.Options{
+		ProxyURL: proxyURL,
+		Timeout:  120 * time.Second,
+	})
+	if err != nil {
+		return nil, err
 	}
-	client := &http.Client{Timeout: 120 * time.Second, Transport: transport}
+	client := &http.Client{
+		Transport: sharedClient.Transport,
+		Timeout:   sharedClient.Timeout,
+	}
 	if noRedirect {
 		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse

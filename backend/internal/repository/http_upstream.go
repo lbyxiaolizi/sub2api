@@ -262,11 +262,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	if req != nil && req.URL != nil {
 		targetHost = req.URL.Host
 	}
-	proxyInfo := "direct"
-	if proxyURL != "" {
-		proxyInfo = proxyURL
-	}
-	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy", proxyInfo, "profile", profile.Name)
+	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy", proxyLogLabel(proxyURL), "profile", profile.Name)
 
 	if err := s.validateRequestHost(req); err != nil {
 		return nil, err
@@ -512,7 +508,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 			atomic.AddInt64(&entry.inFlight, 1)
 		}
 		s.mu.RUnlock()
-		slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "cache_key", cacheKey)
+		slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "proxy", proxyLogLabel(proxyKey))
 		return entry, nil
 	}
 	s.mu.RUnlock()
@@ -526,12 +522,12 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 				atomic.AddInt64(&entry.inFlight, 1)
 			}
 			s.mu.Unlock()
-			slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "cache_key", cacheKey)
+			slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "proxy", proxyLogLabel(proxyKey))
 			return entry, nil
 		}
 		slog.Debug("tls_fingerprint_evicting_stale_client",
 			"account_id", accountID,
-			"cache_key", cacheKey,
+			"proxy", proxyLogLabel(proxyKey),
 			"proxy_changed", entry.proxyKey != proxyKey,
 			"pool_changed", entry.poolKey != poolKey)
 		s.removeClientLocked(cacheKey, entry)
@@ -549,7 +545,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 
 	// 创建带 TLS 指纹的 Transport
-	slog.Debug("tls_fingerprint_creating_new_client", "account_id", accountID, "cache_key", cacheKey, "proxy", proxyKey)
+	slog.Debug("tls_fingerprint_creating_new_client", "account_id", accountID, "proxy", proxyLogLabel(proxyKey))
 	transport, err := buildUpstreamTransportWithTLSFingerprint(settings, parsedProxy, profile)
 	if err != nil {
 		s.mu.Unlock()
@@ -988,7 +984,7 @@ func (s *httpUpstreamService) resolveProtocolMode(profile service.HTTPUpstreamPr
 	if profile != service.HTTPUpstreamProfileOpenAI {
 		return upstreamProtocolModeDefault
 	}
-	if proxyOptionEnabled(parsedProxy, proxyOptionForceHTTP1) {
+	if proxyRequiresHTTP1(parsedProxy) {
 		return upstreamProtocolModeOpenAIH1
 	}
 	settings := s.resolveOpenAIHTTP2Settings()
@@ -1107,7 +1103,7 @@ func (s *httpUpstreamService) recordOpenAIHTTP2Failure(profile service.HTTPUpstr
 	activated, until := state.recordFailure(time.Now(), settings.fallbackErrorThreshold, settings.fallbackWindow, settings.fallbackTTL)
 	if activated {
 		slog.Warn("openai_http2_proxy_fallback_activated",
-			"proxy", proxyKey,
+			"proxy", proxyLogLabel(proxyKey),
 			"fallback_until", until.Format(time.RFC3339))
 	}
 }
@@ -1242,6 +1238,30 @@ func proxyOptionEnabled(proxyURL *url.URL, option string) bool {
 	return value == "1" || strings.EqualFold(value, "true")
 }
 
+func proxyRequiresHTTP1(proxyURL *url.URL) bool {
+	return proxyOptionEnabled(proxyURL, proxyOptionForceHTTP1) ||
+		proxyOptionEnabled(proxyURL, proxyOptionDisableKeepAlive)
+}
+
+func proxyTransportOptions(proxyURL *url.URL) proxyurl.TransportOptions {
+	return proxyurl.TransportOptions{
+		ForceHTTP1:       proxyOptionEnabled(proxyURL, proxyOptionForceHTTP1),
+		DisableKeepAlive: proxyOptionEnabled(proxyURL, proxyOptionDisableKeepAlive),
+	}
+}
+
+func proxyLogLabel(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == directProxyKey {
+		return directProxyKey
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed == nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "configured"
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host)
+}
+
 func proxyURLWithoutOptions(proxyURL *url.URL) *url.URL {
 	if proxyURL == nil {
 		return nil
@@ -1334,28 +1354,23 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		IdleConnTimeout:       settings.idleConnTimeout,
 		ResponseHeaderTimeout: settings.responseHeaderTimeout,
 	}
-	switch protocolMode {
-	case upstreamProtocolModeOpenAIH2:
+	switch {
+	case proxyRequiresHTTP1(proxyURL):
+		proxyTransportOptions(proxyURL).ApplyToHTTPTransport(transport)
+	case protocolMode == upstreamProtocolModeOpenAIH2:
 		transport.ForceAttemptHTTP2 = true
 		// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
 		// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
 		if _, err := enableOpenAIHTTP2KeepAlive(transport); err != nil {
 			return nil, err
 		}
-	case upstreamProtocolModeOpenAIH1:
+	case protocolMode == upstreamProtocolModeOpenAIH1:
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
-	case upstreamProtocolModeOpenAIH1Fallback:
+	case protocolMode == upstreamProtocolModeOpenAIH1Fallback:
 		// 显式禁用 HTTP/2，确保代理不兼容场景回退到 HTTP/1.1。
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
-	}
-	if proxyOptionEnabled(proxyURL, proxyOptionForceHTTP1) {
-		transport.ForceAttemptHTTP2 = false
-		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
-	}
-	if proxyOptionEnabled(proxyURL, proxyOptionDisableKeepAlive) {
-		transport.DisableKeepAlives = true
 	}
 	if err := proxyutil.ConfigureTransportProxy(transport, proxyURLWithoutOptions(proxyURL)); err != nil {
 		return nil, err

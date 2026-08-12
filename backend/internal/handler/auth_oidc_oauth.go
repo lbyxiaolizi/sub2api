@@ -605,10 +605,13 @@ func (h *AuthHandler) createOIDCOAuthChoicePendingSession(
 }
 
 type completeOIDCOAuthRequest struct {
-	InvitationCode   string `json:"invitation_code" binding:"required"`
-	AffCode          string `json:"aff_code,omitempty"`
-	AdoptDisplayName *bool  `json:"adopt_display_name,omitempty"`
-	AdoptAvatar      *bool  `json:"adopt_avatar,omitempty"`
+	InvitationCode        string `json:"invitation_code" binding:"required"`
+	AffCode               string `json:"aff_code,omitempty"`
+	TurnstileToken        string `json:"turnstile_token,omitempty"`
+	TencentCaptchaTicket  string `json:"tencent_captcha_ticket,omitempty"`
+	TencentCaptchaRandstr string `json:"tencent_captcha_randstr,omitempty"`
+	AdoptDisplayName      *bool  `json:"adopt_display_name,omitempty"`
+	AdoptAvatar           *bool  `json:"adopt_avatar,omitempty"`
 }
 
 // CompleteOIDCOAuthRegistration completes a pending OAuth registration by validating
@@ -660,6 +663,10 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		return
 	} else {
 		session = updatedSession
+	}
+	if err := h.verifyLegacyOAuthCompleteRegistrationCaptcha(c, req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr); err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 	if err := h.ensureBackendModeAllowsNewUserLogin(c.Request.Context()); err != nil {
 		response.ErrorFrom(c, err)

@@ -333,7 +333,7 @@ export default {
 		forceHTTP1: 'Force HTTP/1.1',
 		forceHTTP1Hint: 'Disable HTTP/2 multiplexing for this proxy.',
 		disableKeepAlive: 'Disable Keep-Alive',
-		disableKeepAliveHint: 'Create a new proxy connection for every upstream HTTP request; this adds TCP/TLS handshake overhead.',
+		disableKeepAliveHint: 'Allow at most one upstream HTTP request per proxy connection and disable HTTP/2; retries may create additional connections.',
     },
     // Redeem Codes
     redeem: {

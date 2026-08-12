@@ -60,7 +60,7 @@ func (s *adminServiceImpl) enrichPoolName(ctx context.Context, account *Account)
 		return
 	}
 	pool, err := s.poolRepo.GetPoolByID(ctx, *account.PoolID)
-	if err != nil {
+	if err != nil || pool == nil {
 		return
 	}
 	account.PoolName = pool.Name
@@ -823,12 +823,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			if pool == nil {
 				return nil, ErrProxyPoolNotFound
 			}
-			account.PoolID = input.PoolID
 			// 绑定池覆盖独立代理：分配池内健康代理；无健康代理则置空等待池服务补齐。
-			if proxyID, assignErr := s.assignPoolHealthyProxy(ctx, *input.PoolID); assignErr == nil {
-				account.ProxyID = proxyID
-				account.Proxy = nil
+			proxyID, assignErr := s.assignPoolHealthyProxy(ctx, *input.PoolID)
+			if assignErr != nil {
+				return nil, fmt.Errorf("assign proxy from pool %d: %w", *input.PoolID, assignErr)
 			}
+			account.PoolID = input.PoolID
+			account.ProxyID = proxyID
+			account.Proxy = nil
 		}
 	}
 	if !reflect.DeepEqual(previousProbeIdentity, upstreamBillingProbeIdentity(account)) && account.Extra != nil {
@@ -949,7 +951,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
-	if input.ProxyID != nil && !account.IsCredentialShadow() {
+	if (input.ProxyID != nil || input.PoolID != nil) && !account.IsCredentialShadow() {
 		if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
 			return nil, err
 		}

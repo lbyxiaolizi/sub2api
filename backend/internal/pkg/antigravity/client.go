@@ -264,7 +264,7 @@ func NewClient(proxyURL string) (*Client, error) {
 		Timeout: clientTimeout,
 	}
 
-	_, parsed, err := proxyurl.Parse(proxyURL)
+	_, parsed, transportOptions, err := proxyurl.ParseWithTransportOptions(proxyURL)
 	if err != nil {
 		return nil, err
 	}
@@ -275,6 +275,7 @@ func NewClient(proxyURL string) (*Client, error) {
 			}).DialContext,
 			TLSHandshakeTimeout: proxyTLSHandshakeTimeout,
 		}
+		transportOptions.ApplyToHTTPTransport(transport)
 		if err := proxyutil.ConfigureTransportProxy(transport, parsed); err != nil {
 			return nil, fmt.Errorf("configure proxy: %w", err)
 		}

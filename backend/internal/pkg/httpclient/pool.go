@@ -128,10 +128,11 @@ func buildTransport(opts Options) (*http.Transport, error) {
 		return nil, fmt.Errorf("insecure_skip_verify is not allowed; install a trusted certificate instead")
 	}
 
-	_, parsed, err := proxyurl.Parse(opts.ProxyURL)
+	_, parsed, transportOptions, err := proxyurl.ParseWithTransportOptions(opts.ProxyURL)
 	if err != nil {
 		return nil, err
 	}
+	transportOptions.ApplyToHTTPTransport(transport)
 	if parsed == nil {
 		return transport, nil
 	}

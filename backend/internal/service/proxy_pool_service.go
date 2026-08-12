@@ -8,7 +8,10 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // ProxyPoolService 代理池调度服务：
@@ -24,14 +27,15 @@ type ProxyPoolService struct {
 	stopCh       chan struct{}
 	stopOnce     sync.Once
 	wg           sync.WaitGroup
+	runActive    atomic.Bool
+	instanceID   string
 }
 
 const (
-	poolProbeConcurrency    = 4
-	proxyPoolSweepTimeout   = 10 * time.Minute
-	proxyPoolSweepLockTTL   = 15 * time.Minute
-	proxyPoolSweepLockKey   = "proxy_pool_sweep"
-	proxyPoolSweepLockOwner = "pool"
+	poolProbeConcurrency  = 4
+	proxyPoolSweepTimeout = 10 * time.Minute
+	proxyPoolSweepLockTTL = 15 * time.Minute
+	proxyPoolSweepLockKey = "proxy_pool_sweep"
 )
 
 // ProxyPoolRunError 表示一轮扫描至少有一个代理重绑失败；成功账号数由调用方单独返回。
@@ -63,6 +67,7 @@ func NewProxyPoolService(repo ProxyPoolRepository, prober ProxyExitInfoProber, l
 		latencyCache: latencyCache,
 		interval:     interval,
 		stopCh:       make(chan struct{}),
+		instanceID:   uuid.NewString(),
 	}
 }
 
@@ -110,8 +115,7 @@ func (s *ProxyPoolService) runOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), proxyPoolSweepTimeout)
 	defer cancel()
 
-	// 领导锁 TTL 需大于单轮最坏耗时（含探测）。
-	release, acquired := tryAcquireSingletonLeaderLock(ctx, s.lockCache, s.db, proxyPoolSweepLockKey, proxyPoolSweepLockOwner, proxyPoolSweepLockTTL)
+	release, acquired := s.tryStartRun(ctx)
 	if !acquired {
 		return
 	}
@@ -131,6 +135,36 @@ func (s *ProxyPoolService) runOnce() {
 			log.Printf("[ProxyPool] pool %d sweep failed: %v", pool.ID, runErr)
 		}
 	}
+}
+
+// tryStartRun serializes periodic and manual sweeps in this process, then uses
+// the shared leader lock to serialize them across instances. The owner is unique
+// per service instance so an expired holder cannot release a peer's newer lock.
+func (s *ProxyPoolService) tryStartRun(ctx context.Context) (func(), bool) {
+	if s == nil || !s.runActive.CompareAndSwap(false, true) {
+		return nil, false
+	}
+	owner := s.instanceID
+	if owner == "" {
+		owner = uuid.NewString()
+		s.instanceID = owner
+	}
+	releaseLeader, acquired := tryAcquireSingletonLeaderLock(
+		ctx,
+		s.lockCache,
+		s.db,
+		proxyPoolSweepLockKey,
+		owner,
+		proxyPoolSweepLockTTL,
+	)
+	if !acquired {
+		s.runActive.Store(false)
+		return nil, false
+	}
+	return func() {
+		releaseLeader()
+		s.runActive.Store(false)
+	}, true
 }
 
 // RunPool 对一个池执行一轮「探测健康度 + 自动重绑」。
@@ -179,7 +213,7 @@ func (s *ProxyPoolService) RunPool(ctx context.Context, pool *ProxyPool) (int, e
 	rebound := 0
 	var rebindErr error
 	if pool.AutoRebind {
-		rebound, rebindErr = s.rebindUnhealthy(ctx, pool, activeProxies, now)
+		rebound, rebindErr = s.rebindUnhealthy(ctx, pool, proxyPointers(proxies), now)
 	}
 
 	// 4. 为绑定池但尚未分配到池内代理的账号补分配（负载均衡到健康代理）。
@@ -201,7 +235,7 @@ func (s *ProxyPoolService) runPoolManually(ctx context.Context, pool *ProxyPool)
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), proxyPoolSweepTimeout)
 	defer cancel()
 
-	release, acquired := tryAcquireSingletonLeaderLock(runCtx, s.lockCache, s.db, proxyPoolSweepLockKey, proxyPoolSweepLockOwner, proxyPoolSweepLockTTL)
+	release, acquired := s.tryStartRun(runCtx)
 	if !acquired {
 		return 0, ErrProxyPoolRunInProgress
 	}
@@ -252,16 +286,19 @@ func (s *ProxyPoolService) assignUnassigned(ctx context.Context, pool *ProxyPool
 			}
 			return left < right
 		})
-		assigned := false
 		for _, p := range healthy {
-			if err := s.repo.AssignAccountToProxy(ctx, accountID, p.ID); err == nil {
-				counts[p.ID]++
-				assigned = true
-				log.Printf("[ProxyPool] pool %d assigned account %d to proxy %d", pool.ID, accountID, p.ID)
-				break
+			assigned, assignErr := s.repo.AssignAccountToProxy(ctx, pool.ID, accountID, p.ID)
+			if assignErr != nil {
+				log.Printf("[ProxyPool] pool %d assign account %d to proxy %d failed: %v", pool.ID, accountID, p.ID, assignErr)
+				continue
 			}
+			if !assigned {
+				continue
+			}
+			counts[p.ID]++
+			log.Printf("[ProxyPool] pool %d assigned account %d to proxy %d", pool.ID, accountID, p.ID)
+			break
 		}
-		_ = assigned
 	}
 }
 
@@ -289,6 +326,14 @@ func (s *ProxyPoolService) probeAll(ctx context.Context, proxies []*Proxy) map[i
 	}
 	wg.Wait()
 	return results
+}
+
+func proxyPointers(proxies []Proxy) []*Proxy {
+	result := make([]*Proxy, 0, len(proxies))
+	for i := range proxies {
+		result = append(result, &proxies[i])
+	}
+	return result
 }
 
 // probeOne 探测单个代理并写入延迟缓存（供管理端展示）。
@@ -355,7 +400,7 @@ func (s *ProxyPoolService) rebindUnhealthy(ctx context.Context, pool *ProxyPool,
 	var rebindErrors []error
 	candidates := make([]*Proxy, 0, len(active))
 	for _, pp := range active {
-		if pp.PoolHealth == PoolHealthHealthy {
+		if pp.Status == StatusActive && !pp.IsExpired(now) && pp.PoolHealth == PoolHealthHealthy {
 			candidates = append(candidates, pp)
 		}
 	}
@@ -366,7 +411,7 @@ func (s *ProxyPoolService) rebindUnhealthy(ctx context.Context, pool *ProxyPool,
 
 	unhealthy := make([]*Proxy, 0, len(active))
 	for _, pp := range active {
-		if pp.PoolHealth == PoolHealthUnhealthy {
+		if pp.Status != StatusActive || pp.IsExpired(now) || pp.PoolHealth == PoolHealthUnhealthy {
 			unhealthy = append(unhealthy, pp)
 		}
 	}
@@ -393,7 +438,7 @@ func (s *ProxyPoolService) rebindUnhealthy(ctx context.Context, pool *ProxyPool,
 		target := candidates[cursor%len(candidates)]
 		cursor++
 		targetID := target.ID
-		changed, rebindErr := s.repo.RebindAccountsOffProxy(ctx, pp.ID, &targetID)
+		changed, rebindErr := s.repo.RebindAccountsOffProxy(ctx, pool.ID, pp.ID, targetID)
 		if rebindErr != nil {
 			log.Printf("[ProxyPool] pool %d rebind proxy %d -> %d failed: %v", pool.ID, pp.ID, target.ID, rebindErr)
 			rebindErrors = append(rebindErrors, fmt.Errorf("rebind proxy %d to %d: %w", pp.ID, target.ID, rebindErr))

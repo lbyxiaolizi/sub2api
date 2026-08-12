@@ -7,7 +7,10 @@
 package proxyurl
 
 import (
+	"crypto/tls"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -28,6 +31,42 @@ const (
 type TransportOptions struct {
 	ForceHTTP1       bool
 	DisableKeepAlive bool
+}
+
+// RequiresHTTP1 reports whether the effective policy must disable HTTP/2.
+// HTTP/2 multiplexes concurrent requests over one connection, so strict
+// per-request connections require HTTP/1.1 in addition to disabling keep-alive.
+func (o TransportOptions) RequiresHTTP1() bool {
+	return o.ForceHTTP1 || o.DisableKeepAlive
+}
+
+// ApplyToHTTPTransport applies the transport policy embedded in a proxy URL.
+// Callers must use the stripped URL returned by ParseWithTransportOptions when
+// configuring the proxy so these internal options are never sent downstream.
+func (o TransportOptions) ApplyToHTTPTransport(transport *http.Transport) {
+	if transport == nil {
+		return
+	}
+	if o.RequiresHTTP1() {
+		transport.ForceAttemptHTTP2 = false
+		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+		transport.Protocols = new(http.Protocols)
+		transport.Protocols.SetHTTP1(true)
+		if transport.TLSClientConfig != nil {
+			tlsConfig := transport.TLSClientConfig.Clone()
+			nextProtos := make([]string, 0, len(tlsConfig.NextProtos))
+			for _, protocol := range tlsConfig.NextProtos {
+				if protocol != "h2" {
+					nextProtos = append(nextProtos, protocol)
+				}
+			}
+			tlsConfig.NextProtos = nextProtos
+			transport.TLSClientConfig = tlsConfig
+		}
+	}
+	if o.DisableKeepAlive {
+		transport.DisableKeepAlives = true
+	}
 }
 
 // Parse 解析并验证代理 URL。
@@ -58,12 +97,11 @@ func ParseWithTransportOptions(raw string) (trimmed string, parsed *url.URL, opt
 
 	parsed, err = url.Parse(trimmed)
 	if err != nil {
-		// 不使用 %w 包装，避免 url.Parse 的底层错误消息泄漏原始 URL（可能含凭据）
-		return "", nil, options, fmt.Errorf("invalid proxy URL: %v", err)
+		return "", nil, options, errors.New("invalid proxy URL")
 	}
 
 	if parsed.Host == "" || parsed.Hostname() == "" {
-		return "", nil, options, fmt.Errorf("proxy URL missing host: %s", parsed.Redacted())
+		return "", nil, options, errors.New("proxy URL missing host")
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)

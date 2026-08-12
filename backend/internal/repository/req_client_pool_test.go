@@ -88,6 +88,27 @@ func TestGetSharedReqClient_ImpersonateAndProxy(t *testing.T) {
 	require.Equal(t, "http://proxy.local:8080|4s|true|false", buildReqClientKey(opts))
 }
 
+func TestGetSharedReqClient_AppliesProxyTransportOptions(t *testing.T) {
+	sharedReqClients = sync.Map{}
+	opts := reqClientOptions{
+		ProxyURL: "http://proxy.local:8080?_sub2api_disable_keep_alive=true",
+		Timeout:  time.Second,
+	}
+	client, err := getSharedReqClient(opts)
+	require.NoError(t, err)
+
+	require.Equal(t, "1.1", forceHTTPVersion(t, client))
+	require.True(t, client.GetTransport().DisableKeepAlives)
+	require.Contains(t, buildReqClientKey(opts), "_sub2api_disable_keep_alive=true")
+}
+
+func TestCreateClaudeReqClient_AppliesProxyTransportOptions(t *testing.T) {
+	client, err := createReqClient("http://proxy.local:8080?_sub2api_disable_keep_alive=1")
+	require.NoError(t, err)
+	require.Equal(t, "1.1", forceHTTPVersion(t, client))
+	require.True(t, client.GetTransport().DisableKeepAlives)
+}
+
 func TestGetSharedReqClient_InvalidProxyURL(t *testing.T) {
 	sharedReqClients = sync.Map{}
 	opts := reqClientOptions{

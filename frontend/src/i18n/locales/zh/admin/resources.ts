@@ -331,7 +331,7 @@ export default {
 		forceHTTP1: '强制 HTTP/1.1',
 		forceHTTP1Hint: '禁用该代理上的 HTTP/2 多路复用。',
 		disableKeepAlive: '关闭 Keep-Alive',
-		disableKeepAliveHint: '每个上游 HTTP 请求新建一次代理连接；会增加 TCP/TLS 握手开销。',
+		disableKeepAliveHint: '每条代理连接最多承载一个上游 HTTP 请求，同时禁用 HTTP/2；失败重试可能新建额外连接。',
     },
     // Redeem Codes Management
     redeem: {

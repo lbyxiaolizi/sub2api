@@ -49,6 +49,7 @@ func proxyPoolEntityToService(m *dbent.ProxyPool) *service.ProxyPool {
 func (r *proxyPoolRepository) CreatePool(ctx context.Context, pool *service.ProxyPool) (*service.ProxyPool, error) {
 	created, err := r.client.ProxyPool.Create().
 		SetName(pool.Name).
+		SetNillableDescription(pool.Description).
 		SetStatus(pool.Status).
 		SetHealthIntervalSeconds(pool.HealthIntervalSeconds).
 		SetFailureThreshold(pool.FailureThreshold).
@@ -122,7 +123,10 @@ func (r *proxyPoolRepository) ListPoolsWithStats(ctx context.Context) ([]service
 		), account_stats AS (
 			SELECT COALESCE(a.pool_id, p.pool_id) AS pool_id,
 			       COUNT(*)::bigint AS bound_account_sum,
-			       COUNT(*) FILTER (WHERE a.pool_id IS NOT NULL AND a.proxy_id IS NULL)::bigint AS unassigned_account_count
+			       COUNT(*) FILTER (
+			           WHERE a.pool_id IS NOT NULL
+			             AND (a.proxy_id IS NULL OR p.pool_id IS DISTINCT FROM a.pool_id)
+			       )::bigint AS unassigned_account_count
 			FROM accounts a
 			LEFT JOIN proxies p ON p.id = a.proxy_id AND p.deleted_at IS NULL
 			WHERE a.deleted_at IS NULL AND COALESCE(a.pool_id, p.pool_id) IS NOT NULL
@@ -376,31 +380,99 @@ func (r *proxyPoolRepository) ListPoolUnassignedAccountIDs(ctx context.Context, 
 	return ids, rows.Err()
 }
 
-// AssignAccountToProxy 把单个账号改投到指定代理（池服务分配用）。
-func (r *proxyPoolRepository) AssignAccountToProxy(ctx context.Context, accountID int64, proxyID int64) error {
-	_, err := r.sql.ExecContext(ctx, `
-		UPDATE accounts
-		SET proxy_id = $1, updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL`, proxyID, accountID)
-	return err
+// AssignAccountToProxy 原子确认账号仍归属该池、目标代理仍健康后执行分配，
+// 并在同一事务内同步影子账号、清理代理相关探针快照与写入调度 outbox。
+func (r *proxyPoolRepository) AssignAccountToProxy(ctx context.Context, poolID, accountID, proxyID int64) (bool, error) {
+	tx, txErr := r.client.Tx(ctx)
+	if txErr != nil {
+		if txErr != dbent.ErrTxStarted {
+			return false, txErr
+		}
+		accountIDs, assigned, err := r.assignAccountToProxyOnExec(ctx, r.sql, poolID, accountID, proxyID)
+		if err == nil {
+			r.deleteSchedulerAccountSnapshotsDetached(ctx, accountIDs)
+		}
+		return assigned, err
+	}
+	accountIDs, assigned, err := r.assignAccountToProxyOnExec(ctx, tx, poolID, accountID, proxyID)
+	if err != nil {
+		_ = tx.Rollback()
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	r.deleteSchedulerAccountSnapshotsDetached(ctx, accountIDs)
+	return assigned, nil
 }
 
-// RebindAccountsOffProxy 把绑定在 fromProxyID 上的活跃账号改投到 toProxyID
-// （nil 表示直连），并记录 fallback origin 供手动回切（已有 origin 的不覆盖）。
-// 事务内完成改投 + 探针快照失效 + 调度器 outbox，返回受影响账号 ID 列表。
-func (r *proxyPoolRepository) RebindAccountsOffProxy(ctx context.Context, fromProxyID int64, toProxyID *int64) ([]int64, error) {
+func (r *proxyPoolRepository) assignAccountToProxyOnExec(ctx context.Context, exec sqlExecutor, poolID, accountID, proxyID int64) ([]int64, bool, error) {
+	accountIDs, err := queryProxyPoolAccountIDs(ctx, exec, `
+		UPDATE accounts AS a SET
+			proxy_id = $3,
+			extra = a.extra - 'upstream_billing_probe' - 'ollama_cloud_usage_snapshot',
+			updated_at = NOW()
+		WHERE a.id = $2
+			AND a.pool_id = $1
+			AND a.deleted_at IS NULL
+			AND (a.proxy_id IS NULL OR NOT EXISTS (
+				SELECT 1 FROM proxies current_proxy
+				WHERE current_proxy.id = a.proxy_id
+					AND current_proxy.pool_id = $1
+					AND current_proxy.deleted_at IS NULL
+			))
+			AND EXISTS (
+				SELECT 1 FROM proxies p
+				WHERE p.id = $3
+					AND p.pool_id = $1
+					AND p.deleted_at IS NULL
+					AND p.status = 'active'
+					AND p.pool_health = 'healthy'
+					AND (p.expires_at IS NULL OR p.expires_at > NOW())
+			)
+		RETURNING a.id`, poolID, accountID, proxyID)
+	if err != nil || len(accountIDs) == 0 {
+		return accountIDs, false, err
+	}
+
+	shadowIDs, err := queryProxyPoolAccountIDs(ctx, exec, `
+		UPDATE accounts AS shadow SET
+			proxy_id = $2,
+			extra = shadow.extra - 'upstream_billing_probe' - 'ollama_cloud_usage_snapshot',
+			updated_at = NOW()
+		WHERE shadow.parent_account_id = $1
+			AND shadow.deleted_at IS NULL
+			AND (
+				shadow.proxy_id IS DISTINCT FROM $2
+				OR shadow.extra ? 'upstream_billing_probe'
+				OR shadow.extra ? 'ollama_cloud_usage_snapshot'
+			)
+		RETURNING shadow.id`, accountID, proxyID)
+	if err != nil {
+		return nil, false, err
+	}
+	accountIDs = sortedUniqueAccountIDs(append(accountIDs, shadowIDs...))
+	if err := enqueueProxyProbeAccountChanges(ctx, exec, accountIDs); err != nil {
+		return nil, false, err
+	}
+	return accountIDs, true, nil
+}
+
+// RebindAccountsOffProxy 在事务内复核池、源代理和目标代理的当前状态，
+// 只移动仍归属该池或历史 pool_id 为空的母账号，然后同步其影子账号。
+func (r *proxyPoolRepository) RebindAccountsOffProxy(ctx context.Context, poolID, fromProxyID, toProxyID int64) ([]int64, error) {
 	tx, txErr := r.client.Tx(ctx)
 	if txErr != nil {
 		if txErr != dbent.ErrTxStarted {
 			return nil, txErr
 		}
-		accountIDs, err := r.rebindAccountsOffProxyOnExec(ctx, r.sql, fromProxyID, toProxyID)
+		accountIDs, err := r.rebindAccountsOffProxyOnExec(ctx, r.sql, poolID, fromProxyID, toProxyID)
 		if err == nil {
 			r.deleteSchedulerAccountSnapshotsDetached(ctx, accountIDs)
 		}
 		return accountIDs, err
 	}
-	accountIDs, err := r.rebindAccountsOffProxyOnExec(ctx, tx, fromProxyID, toProxyID)
+	accountIDs, err := r.rebindAccountsOffProxyOnExec(ctx, tx, poolID, fromProxyID, toProxyID)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, err
@@ -412,18 +484,33 @@ func (r *proxyPoolRepository) RebindAccountsOffProxy(ctx context.Context, fromPr
 	return accountIDs, nil
 }
 
-func (r *proxyPoolRepository) rebindAccountsOffProxyOnExec(ctx context.Context, exec sqlExecutor, fromProxyID int64, toProxyID *int64) ([]int64, error) {
-	var targetProxyID any
-	if toProxyID != nil {
-		targetProxyID = *toProxyID
-	}
+func (r *proxyPoolRepository) rebindAccountsOffProxyOnExec(ctx context.Context, exec sqlExecutor, poolID, fromProxyID, toProxyID int64) ([]int64, error) {
 	accountIDs, err := queryProxyPoolAccountIDs(ctx, exec, `
-		UPDATE accounts SET proxy_id = $2,
-			proxy_fallback_origin_id = COALESCE(proxy_fallback_origin_id, $1),
-			extra = extra - 'upstream_billing_probe' - 'ollama_cloud_usage_snapshot',
+		UPDATE accounts AS a SET
+			proxy_id = $3,
+			proxy_fallback_origin_id = COALESCE(a.proxy_fallback_origin_id, $2),
+			extra = a.extra - 'upstream_billing_probe' - 'ollama_cloud_usage_snapshot',
 			updated_at = NOW()
-		WHERE proxy_id = $1 AND deleted_at IS NULL
-		RETURNING id`, fromProxyID, targetProxyID)
+		WHERE a.proxy_id = $2
+			AND a.parent_account_id IS NULL
+			AND a.deleted_at IS NULL
+			AND (a.pool_id = $1 OR a.pool_id IS NULL)
+			AND EXISTS (
+				SELECT 1 FROM proxies source_proxy
+				WHERE source_proxy.id = $2
+					AND source_proxy.pool_id = $1
+					AND source_proxy.deleted_at IS NULL
+			)
+			AND EXISTS (
+				SELECT 1 FROM proxies target_proxy
+				WHERE target_proxy.id = $3
+					AND target_proxy.pool_id = $1
+					AND target_proxy.deleted_at IS NULL
+					AND target_proxy.status = 'active'
+					AND target_proxy.pool_health = 'healthy'
+					AND (target_proxy.expires_at IS NULL OR target_proxy.expires_at > NOW())
+			)
+		RETURNING a.id`, poolID, fromProxyID, toProxyID)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +531,7 @@ func (r *proxyPoolRepository) rebindAccountsOffProxyOnExec(ctx context.Context, 
 					OR shadow.extra ? 'upstream_billing_probe'
 					OR shadow.extra ? 'ollama_cloud_usage_snapshot'
 				)
-			RETURNING shadow.id`, fromProxyID, targetProxyID, pq.Array(accountIDs))
+			RETURNING shadow.id`, fromProxyID, toProxyID, pq.Array(accountIDs))
 		if shadowErr != nil {
 			return nil, shadowErr
 		}

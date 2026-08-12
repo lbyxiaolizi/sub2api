@@ -40,14 +40,16 @@ func TestProxyExportDataRespectsFilters(t *testing.T) {
 
 	adminSvc.proxies = []service.Proxy{
 		{
-			ID:       1,
-			Name:     "proxy-a",
-			Protocol: "http",
-			Host:     "127.0.0.1",
-			Port:     8080,
-			Username: "user",
-			Password: "pass",
-			Status:   service.StatusActive,
+			ID:               1,
+			Name:             "proxy-a",
+			Protocol:         "http",
+			Host:             "127.0.0.1",
+			Port:             8080,
+			Username:         "user",
+			Password:         "pass",
+			Status:           service.StatusActive,
+			ForceHTTP1:       true,
+			DisableKeepAlive: true,
 		},
 		{
 			ID:       2,
@@ -78,6 +80,31 @@ func TestProxyExportDataRespectsFilters(t *testing.T) {
 	require.Equal(t, "https", adminSvc.lastListProxies.protocol)
 	require.Equal(t, "id", adminSvc.lastListProxies.sortBy)
 	require.Equal(t, "desc", adminSvc.lastListProxies.sortOrder)
+}
+
+func TestProxyExportDataPreservesTransportOptions(t *testing.T) {
+	router, adminSvc := setupProxyDataRouter()
+	adminSvc.proxies = []service.Proxy{{
+		ID:               1,
+		Name:             "rotating-v6",
+		Protocol:         "socks5h",
+		Host:             "2001:db8::1",
+		Port:             1087,
+		Status:           service.StatusActive,
+		ForceHTTP1:       true,
+		DisableKeepAlive: true,
+	}}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/proxies/data", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp proxyDataResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Proxies, 1)
+	require.True(t, resp.Data.Proxies[0].ForceHTTP1)
+	require.True(t, resp.Data.Proxies[0].DisableKeepAlive)
 }
 
 func TestProxyExportDataWithSelectedIDs(t *testing.T) {
@@ -231,24 +258,27 @@ func TestProxyImportDataReusesAndTriggersLatencyProbe(t *testing.T) {
 			"version": dataVersion,
 			"proxies": []map[string]any{
 				{
-					"proxy_key": "http|127.0.0.1|8080|user|pass",
-					"name":      "proxy-a",
-					"protocol":  "http",
-					"host":      "127.0.0.1",
-					"port":      8080,
-					"username":  "user",
-					"password":  "pass",
-					"status":    "inactive",
+					"proxy_key":          "http|127.0.0.1|8080|user|pass",
+					"name":               "proxy-a",
+					"protocol":           "http",
+					"host":               "127.0.0.1",
+					"port":               8080,
+					"username":           "user",
+					"password":           "pass",
+					"status":             "inactive",
+					"force_http1":        true,
+					"disable_keep_alive": true,
 				},
 				{
-					"proxy_key": "https|10.0.0.2|443|u|p",
-					"name":      "proxy-b",
-					"protocol":  "https",
-					"host":      "10.0.0.2",
-					"port":      443,
-					"username":  "u",
-					"password":  "p",
-					"status":    "active",
+					"proxy_key":   "https|10.0.0.2|443|u|p",
+					"name":        "proxy-b",
+					"protocol":    "https",
+					"host":        "10.0.0.2",
+					"port":        443,
+					"username":    "u",
+					"password":    "p",
+					"status":      "active",
+					"force_http1": true,
 				},
 			},
 			"accounts": []map[string]any{},
@@ -271,8 +301,18 @@ func TestProxyImportDataReusesAndTriggersLatencyProbe(t *testing.T) {
 
 	adminSvc.mu.Lock()
 	updatedIDs := append([]int64(nil), adminSvc.updatedProxyIDs...)
+	updatedProxies := append([]*service.UpdateProxyInput(nil), adminSvc.updatedProxies...)
+	createdProxies := append([]*service.CreateProxyInput(nil), adminSvc.createdProxies...)
 	adminSvc.mu.Unlock()
 	require.Contains(t, updatedIDs, int64(1))
+	require.Len(t, updatedProxies, 1)
+	require.NotNil(t, updatedProxies[0].ForceHTTP1)
+	require.True(t, *updatedProxies[0].ForceHTTP1)
+	require.NotNil(t, updatedProxies[0].DisableKeepAlive)
+	require.True(t, *updatedProxies[0].DisableKeepAlive)
+	require.Len(t, createdProxies, 1)
+	require.True(t, createdProxies[0].ForceHTTP1)
+	require.False(t, createdProxies[0].DisableKeepAlive)
 
 	require.Eventually(t, func() bool {
 		adminSvc.mu.Lock()

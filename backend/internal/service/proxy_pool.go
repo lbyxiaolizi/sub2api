@@ -104,10 +104,10 @@ type ProxyPoolRepository interface {
 	UpdateProxyPoolHealth(ctx context.Context, proxyID int64, health string, failures int, checkedAt time.Time) error
 	// CountAccountsByProxyIDs 统计各代理绑定的活跃账号数。
 	CountAccountsByProxyIDs(ctx context.Context, proxyIDs []int64) (map[int64]int64, error)
-	// RebindAccountsOffProxy 把绑定在 fromProxyID 上的账号改投到 toProxyID
-	// （toProxyID 为 nil 时改投直连），记录 fallback origin 供手动回切。
-	// 返回受影响账号 ID 列表。
-	RebindAccountsOffProxy(ctx context.Context, fromProxyID int64, toProxyID *int64) ([]int64, error)
+	// RebindAccountsOffProxy 把仍归属指定池（或历史 pool_id 为空）且绑定在
+	// fromProxyID 上的母账号改投到池内健康 toProxyID，并同步其影子账号。
+	// 返回受影响账号 ID 列表；并发状态变化时可返回空列表。
+	RebindAccountsOffProxy(ctx context.Context, poolID, fromProxyID, toProxyID int64) ([]int64, error)
 
 	// RecordRebindLog 记录一次池重绑操作（审计/管理端展示）。
 	RecordRebindLog(ctx context.Context, log *ProxyPoolRebindLog) error
@@ -117,6 +117,7 @@ type ProxyPoolRepository interface {
 	// ListPoolUnassignedAccountIDs 返回绑定该池但 proxy_id 为空或 proxy 不属于
 	// 该池的账号 ID（供池服务补齐分配）。
 	ListPoolUnassignedAccountIDs(ctx context.Context, poolID int64) ([]int64, error)
-	// AssignAccountToProxy 把单个账号改投到指定代理（池服务分配用）。
-	AssignAccountToProxy(ctx context.Context, accountID int64, proxyID int64) error
+	// AssignAccountToProxy 把仍归属指定池的单个账号改投到池内健康代理。
+	// 返回 false 表示账号或代理状态已在并发期间变化，未执行分配。
+	AssignAccountToProxy(ctx context.Context, poolID, accountID, proxyID int64) (bool, error)
 }

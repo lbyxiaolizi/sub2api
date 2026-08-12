@@ -1,8 +1,15 @@
 package proxyurl
 
 import (
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestParse_空字符串直连(t *testing.T) {
@@ -78,6 +85,22 @@ func TestParse_无效URL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid proxy URL") {
 		t.Errorf("错误信息应包含 'invalid proxy URL': got %s", err.Error())
+	}
+}
+
+func TestParse_InvalidURLDoesNotLeakCredentials(t *testing.T) {
+	raw := "http://secret-user:secret-pass@proxy.example/%zz"
+	_, _, err := Parse(raw)
+	if err == nil {
+		t.Fatal("invalid URL should return an error")
+	}
+	for _, secret := range []string{raw, "secret-user", "secret-pass", "%zz"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("error leaked proxy URL material %q: %q", secret, err)
+		}
+	}
+	if err.Error() != "invalid proxy URL" {
+		t.Fatalf("unexpected stable error: %q", err)
 	}
 }
 
@@ -216,6 +239,95 @@ func TestParseWithTransportOptionsExtractsAndStripsInternalQuery(t *testing.T) {
 	}
 	if parsed.RawQuery != "" || trimmed != "socks5h://[2001:db8::1]:1087" {
 		t.Fatalf("internal query was not stripped: trimmed=%q parsed=%q", trimmed, parsed.String())
+	}
+}
+
+func TestTransportOptionsApplyToHTTPTransport(t *testing.T) {
+	tests := []struct {
+		name             string
+		options          TransportOptions
+		wantHTTP1        bool
+		wantKeepAliveOff bool
+	}{
+		{name: "force HTTP1 only", options: TransportOptions{ForceHTTP1: true}, wantHTTP1: true},
+		{name: "disable keep-alive implies HTTP1", options: TransportOptions{DisableKeepAlive: true}, wantHTTP1: true, wantKeepAliveOff: true},
+		{name: "default policy", options: TransportOptions{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transport := &http.Transport{ForceAttemptHTTP2: true}
+			tt.options.ApplyToHTTPTransport(transport)
+
+			if got := !transport.ForceAttemptHTTP2 && transport.TLSNextProto != nil; got != tt.wantHTTP1 {
+				t.Fatalf("effective HTTP/1.1 policy = %v, want %v", got, tt.wantHTTP1)
+			}
+			if transport.DisableKeepAlives != tt.wantKeepAliveOff {
+				t.Fatalf("DisableKeepAlives = %v, want %v", transport.DisableKeepAlives, tt.wantKeepAliveOff)
+			}
+			if tt.wantHTTP1 && (transport.Protocols == nil || !transport.Protocols.HTTP1() || transport.Protocols.HTTP2()) {
+				t.Fatalf("unexpected protocols: %+v", transport.Protocols)
+			}
+		})
+	}
+}
+
+func TestDisableKeepAliveUsesOneTLSConnectionPerConcurrentRequest(t *testing.T) {
+	const requestCount = 8
+
+	var connections atomic.Int32
+	protocols := make(chan string, requestCount)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocols <- r.Proto
+		time.Sleep(50 * time.Millisecond)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = true
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	transport := server.Client().Transport.(*http.Transport).Clone()
+	TransportOptions{DisableKeepAlive: true}.ApplyToHTTPTransport(transport)
+	client := &http.Client{Transport: transport}
+	defer client.CloseIdleConnections()
+
+	var wg sync.WaitGroup
+	errors := make(chan error, requestCount)
+	for range requestCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			response, err := client.Get(server.URL)
+			if err == nil {
+				_, err = io.Copy(io.Discard, response.Body)
+				closeErr := response.Body.Close()
+				if err == nil {
+					err = closeErr
+				}
+			}
+			errors <- err
+		}()
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(protocols)
+	for protocol := range protocols {
+		if protocol != "HTTP/1.1" {
+			t.Fatalf("protocol = %q, want HTTP/1.1", protocol)
+		}
+	}
+	if got := connections.Load(); got != requestCount {
+		t.Fatalf("connections = %d, want %d", got, requestCount)
 	}
 }
 

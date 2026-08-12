@@ -199,7 +199,7 @@ func newVertexServiceAccountHTTPClient(proxyURL string) (*http.Client, error) {
 		return servertiming.InstrumentClient(&http.Client{Timeout: 15 * time.Second}), nil
 	}
 
-	_, parsedProxy, err := proxyurl.Parse(proxyURL)
+	_, parsedProxy, transportOptions, err := proxyurl.ParseWithTransportOptions(proxyURL)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +209,7 @@ func newVertexServiceAccountHTTPClient(proxyURL string) (*http.Client, error) {
 	}
 	transport := defaultTransport.Clone()
 	transport.Proxy = nil
+	transportOptions.ApplyToHTTPTransport(transport)
 	if err := proxyutil.ConfigureTransportProxy(transport, parsedProxy); err != nil {
 		return nil, err
 	}

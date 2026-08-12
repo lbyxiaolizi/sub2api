@@ -7,11 +7,13 @@ const {
   probeUpstreamBillingMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  grokCreateFromSSOMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  grokCreateFromSSOMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -41,6 +43,9 @@ vi.mock('@/api/admin', () => ({
     },
     tlsFingerprintProfiles: {
       list: vi.fn().mockResolvedValue([]),
+    },
+    grok: {
+      createFromSSO: grokCreateFromSSOMock,
     },
   },
 }))
@@ -72,6 +77,7 @@ const OAuthAuthorizationFlowStub = defineComponent({
     showCodexSessionImportOption: Boolean,
     showAgentIdentityOption: Boolean,
     showCodexPatOption: Boolean,
+    showSsoOption: Boolean,
     initialInputMethod: String,
   },
   data: () => ({ inputMethod: 'manual' }),
@@ -80,11 +86,12 @@ const OAuthAuthorizationFlowStub = defineComponent({
       this.inputMethod = 'manual'
     },
   },
-  emits: ['import-codex-session', 'import-codex-pat'],
+  emits: ['import-codex-session', 'import-codex-pat', 'import-sso'],
   template: `
     <div>
       <button data-testid="import-codex-session" @click="$emit('import-codex-session', 'session-json')">session</button>
       <button data-testid="import-codex-pat" @click="$emit('import-codex-pat', 'pat-token')">pat</button>
+      <button v-if="showSsoOption" data-testid="import-grok-sso" @click="$emit('import-sso', 'sso-token')">sso</button>
     </div>
   `,
 })
@@ -179,7 +186,7 @@ async function openCodexImportStep(toggleClicks = 0) {
   return wrapper
 }
 
-describe('CreateAccountModal OpenAI long-context billing', () => {
+describe('CreateAccountModal', () => {
   beforeEach(() => {
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
@@ -192,6 +199,10 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       warnings: [],
     })
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
+    grokCreateFromSSOMock.mockReset().mockResolvedValue({
+      created: [{ index: 0, name: 'Pooled Grok import' }],
+      failed: [],
+    })
   })
 
   it.each([
@@ -210,10 +221,35 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(requestMock).toHaveBeenCalledTimes(1)
     expect(requestMock.mock.calls[0]?.[0]).toMatchObject({ pool_id: 7, proxy_id: null })
-    // Reopening the modal resets the completed flow and must not leak the previous pool.
+  })
+
+  it('clears the selected pool when the form resets between openings', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="create-account-pool-select"]').trigger('click')
+    expect(wrapper.get('[data-testid="create-account-pool-select"]').attributes('data-value')).toBe('7')
+
     await wrapper.setProps({ show: false })
     await wrapper.setProps({ show: true })
+
     expect(wrapper.get('[data-testid="create-account-pool-select"]').attributes('data-value')).toBe('')
+  })
+
+  it('keeps the selected pool in Grok SSO imports', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="create-account-pool-select"]').trigger('click')
+    await wrapper.get('[data-testid="select-direct"]').trigger('click')
+    await selectButtonByText(wrapper, 'Grok')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Pooled Grok import')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-grok-sso"]').trigger('click')
+    await flushPromises()
+
+    expect(grokCreateFromSSOMock).toHaveBeenCalledTimes(1)
+    expect(grokCreateFromSSOMock.mock.calls[0]?.[0]).toMatchObject({
+      pool_id: 7,
+      proxy_id: null,
+      sso_tokens: ['sso-token'],
+    })
   })
 
   it('sends false explicitly for normal OpenAI account creation by default', async () => {

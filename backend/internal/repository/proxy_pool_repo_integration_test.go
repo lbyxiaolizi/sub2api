@@ -37,8 +37,10 @@ func TestProxyPoolRepoSuite(t *testing.T) {
 }
 
 func (s *ProxyPoolRepoSuite) TestPoolLifecycle() {
+	description := "pool description"
 	pool, err := s.repo.CreatePool(s.ctx, &service.ProxyPool{
 		Name:                  "pool-lifecycle",
+		Description:           &description,
 		Status:                service.StatusActive,
 		HealthIntervalSeconds: 60,
 		FailureThreshold:      2,
@@ -50,6 +52,7 @@ func (s *ProxyPoolRepoSuite) TestPoolLifecycle() {
 	got, err := s.repo.GetPoolByID(s.ctx, pool.ID)
 	s.Require().NoError(err)
 	s.Require().Equal("pool-lifecycle", got.Name)
+	s.Require().Equal(&description, got.Description)
 	s.Require().Equal(60, got.HealthIntervalSeconds)
 
 	// 更新
@@ -178,6 +181,9 @@ func (s *ProxyPoolRepoSuite) TestRebindAccountsOffProxy() {
 	s.Require().NoError(s.proxyRepo.Create(s.ctx, to))
 	_, err = s.repo.AssignProxiesToPool(s.ctx, pool.ID, []int64{from.ID, to.ID})
 	s.Require().NoError(err)
+	s.Require().NoError(s.repo.UpdateProxyPoolHealth(s.ctx, to.ID, service.PoolHealthHealthy, 0, time.Now()))
+	otherPool, err := s.repo.CreatePool(s.ctx, &service.ProxyPool{Name: "pool-rebind-other", Status: service.StatusActive})
+	s.Require().NoError(err)
 
 	// 3 个账号绑定 from 代理
 	accounts := make([]*service.Account, 0, 3)
@@ -188,30 +194,49 @@ func (s *ProxyPoolRepoSuite) TestRebindAccountsOffProxy() {
 		})
 		accounts = append(accounts, a)
 	}
+	otherPoolAccount := mustCreateAccount(s.T(), s.tx.Client(), &service.Account{
+		Name: "pool-rebind-other-account", PoolID: &otherPool.ID, ProxyID: &from.ID,
+	})
 	schedulerCache := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = schedulerCache
 
 	// 账号数统计
 	counts, err := s.repo.CountAccountsByProxyIDs(s.ctx, []int64{from.ID, to.ID})
 	s.Require().NoError(err)
-	s.Require().Equal(int64(3), counts[from.ID])
+	s.Require().Equal(int64(4), counts[from.ID])
 	s.Require().Equal(int64(0), counts[to.ID])
 
 	// 改投
-	changed, err := s.repo.RebindAccountsOffProxy(s.ctx, from.ID, &to.ID)
+	changed, err := s.repo.RebindAccountsOffProxy(s.ctx, pool.ID, from.ID, to.ID)
 	s.Require().NoError(err)
 	s.Require().Len(changed, 3)
 	s.Require().ElementsMatch([]int64{accounts[0].ID, accounts[1].ID, accounts[2].ID}, schedulerCache.deleteIDs)
 
 	counts, err = s.repo.CountAccountsByProxyIDs(s.ctx, []int64{from.ID, to.ID})
 	s.Require().NoError(err)
-	s.Require().Equal(int64(0), counts[from.ID])
+	s.Require().Equal(int64(1), counts[from.ID])
 	s.Require().Equal(int64(3), counts[to.ID])
+	otherPoolAccount, err = newAccountRepositoryWithSQL(s.tx.Client(), s.tx, nil).GetByID(s.ctx, otherPoolAccount.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(from.ID, *otherPoolAccount.ProxyID)
 
 	// 再跑一轮不应有变化（无账号绑定 from）
-	changed, err = s.repo.RebindAccountsOffProxy(s.ctx, from.ID, &to.ID)
+	changed, err = s.repo.RebindAccountsOffProxy(s.ctx, pool.ID, from.ID, to.ID)
 	s.Require().NoError(err)
 	s.Require().Empty(changed)
+
+	// 探测后目标代理可能被并发禁用；事务内复核必须阻止陈旧候选继续接收账号。
+	staleTargetAccount := mustCreateAccount(s.T(), s.tx.Client(), &service.Account{
+		Name: "pool-rebind-stale-target", PoolID: &pool.ID, ProxyID: &from.ID,
+	})
+	_, err = s.tx.Client().Proxy.UpdateOneID(to.ID).SetStatus(service.StatusDisabled).Save(s.ctx)
+	s.Require().NoError(err)
+	changed, err = s.repo.RebindAccountsOffProxy(s.ctx, pool.ID, from.ID, to.ID)
+	s.Require().NoError(err)
+	s.Require().Empty(changed)
+	staleTargetAccount, err = newAccountRepositoryWithSQL(s.tx.Client(), s.tx, nil).GetByID(s.ctx, staleTargetAccount.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(from.ID, *staleTargetAccount.ProxyID)
 	_ = accounts
 }
 
@@ -258,6 +283,13 @@ func (s *ProxyPoolRepoSuite) TestListPoolsWithStats() {
 
 	mustCreateAccount(s.T(), s.tx.Client(), &service.Account{Name: "pool-stats-acc", ProxyID: &p1.ID})
 	mustCreateAccount(s.T(), s.tx.Client(), &service.Account{Name: "pool-stats-direct", PoolID: &pool.ID})
+	otherPool, err := s.repo.CreatePool(s.ctx, &service.ProxyPool{Name: "pool-stats-other", Status: service.StatusActive})
+	s.Require().NoError(err)
+	otherProxy := &service.Proxy{Name: "pool-stats-other-proxy", Protocol: "http", Host: "127.0.0.1", Port: 8088, Status: service.StatusActive}
+	s.Require().NoError(s.proxyRepo.Create(s.ctx, otherProxy))
+	_, err = s.repo.AssignProxiesToPool(s.ctx, otherPool.ID, []int64{otherProxy.ID})
+	s.Require().NoError(err)
+	mustCreateAccount(s.T(), s.tx.Client(), &service.Account{Name: "pool-stats-wrong-pool", PoolID: &pool.ID, ProxyID: &otherProxy.ID})
 
 	stats, err := s.repo.ListPoolsWithStats(s.ctx)
 	s.Require().NoError(err)
@@ -272,6 +304,50 @@ func (s *ProxyPoolRepoSuite) TestListPoolsWithStats() {
 	s.Require().Equal(int64(1), found.ProxyCount)
 	s.Require().Equal(int64(1), found.HealthyCount)
 	s.Require().Equal(int64(0), found.UnhealthyCount)
-	s.Require().Equal(int64(2), found.BoundAccountSum)
-	s.Require().Equal(int64(1), found.UnassignedAccountCount)
+	s.Require().Equal(int64(3), found.BoundAccountSum)
+	s.Require().Equal(int64(2), found.UnassignedAccountCount)
+}
+
+func (s *ProxyPoolRepoSuite) TestAssignAccountToProxyHonorsPoolAndPublishesChange() {
+	pool, err := s.repo.CreatePool(s.ctx, &service.ProxyPool{Name: "pool-atomic-assign", Status: service.StatusActive})
+	s.Require().NoError(err)
+	otherPool, err := s.repo.CreatePool(s.ctx, &service.ProxyPool{Name: "pool-atomic-assign-other", Status: service.StatusActive})
+	s.Require().NoError(err)
+	proxy := &service.Proxy{Name: "pool-atomic-proxy", Protocol: "http", Host: "127.0.0.1", Port: 8089, Status: service.StatusActive}
+	s.Require().NoError(s.proxyRepo.Create(s.ctx, proxy))
+	_, err = s.repo.AssignProxiesToPool(s.ctx, pool.ID, []int64{proxy.ID})
+	s.Require().NoError(err)
+	s.Require().NoError(s.repo.UpdateProxyPoolHealth(s.ctx, proxy.ID, service.PoolHealthHealthy, 0, time.Now()))
+	account := mustCreateAccount(s.T(), s.tx.Client(), &service.Account{Name: "pool-atomic-account", PoolID: &pool.ID})
+	schedulerCache := &schedulerCacheRecorder{}
+	s.repo.schedulerCache = schedulerCache
+
+	assigned, err := s.repo.AssignAccountToProxy(s.ctx, otherPool.ID, account.ID, proxy.ID)
+	s.Require().NoError(err)
+	s.Require().False(assigned)
+	unchanged, err := newAccountRepositoryWithSQL(s.tx.Client(), s.tx, nil).GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(unchanged.ProxyID)
+
+	assigned, err = s.repo.AssignAccountToProxy(s.ctx, pool.ID, account.ID, proxy.ID)
+	s.Require().NoError(err)
+	s.Require().True(assigned)
+	updated, err := newAccountRepositoryWithSQL(s.tx.Client(), s.tx, nil).GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(proxy.ID, *updated.ProxyID)
+	s.Require().Contains(schedulerCache.deleteIDs, account.ID)
+
+	// Already-correct pool assignments are no longer "unassigned" and must not
+	// be overwritten by a stale candidate list from another concurrent sweep.
+	otherProxy := &service.Proxy{Name: "pool-atomic-proxy-2", Protocol: "http", Host: "127.0.0.1", Port: 8091, Status: service.StatusActive}
+	s.Require().NoError(s.proxyRepo.Create(s.ctx, otherProxy))
+	_, err = s.repo.AssignProxiesToPool(s.ctx, pool.ID, []int64{otherProxy.ID})
+	s.Require().NoError(err)
+	s.Require().NoError(s.repo.UpdateProxyPoolHealth(s.ctx, otherProxy.ID, service.PoolHealthHealthy, 0, time.Now()))
+	assigned, err = s.repo.AssignAccountToProxy(s.ctx, pool.ID, account.ID, otherProxy.ID)
+	s.Require().NoError(err)
+	s.Require().False(assigned)
+	unchanged, err = newAccountRepositoryWithSQL(s.tx.Client(), s.tx, nil).GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(proxy.ID, *unchanged.ProxyID)
 }

@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,6 +14,18 @@ type updateAccountCredsRepoStub struct {
 	mockAccountRepoForGemini
 	account     *Account
 	updateCalls int
+}
+
+type updateAccountPoolRepoStub struct {
+	*fakePoolRepo
+	countErr error
+}
+
+func (r *updateAccountPoolRepoStub) CountAccountsByProxyIDs(context.Context, []int64) (map[int64]int64, error) {
+	if r.countErr != nil {
+		return nil, r.countErr
+	}
+	return map[int64]int64{}, nil
 }
 
 func (r *updateAccountCredsRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -114,4 +127,36 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 
 	require.Equal(t, "rt-existing", repo.account.Credentials["refresh_token"], "空 credentials 不应触碰已有 token")
 	require.Equal(t, "renamed", repo.account.Name)
+}
+
+func TestUpdateAccount_PoolAssignmentErrorDoesNotPersistMixedBinding(t *testing.T) {
+	accountID := int64(205)
+	oldProxyID := int64(41)
+	accountRepo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:          accountID,
+			Name:        "before",
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			ProxyID:     &oldProxyID,
+			Credentials: map[string]any{},
+			Extra:       map[string]any{},
+		},
+	}
+	poolRepo := &updateAccountPoolRepoStub{fakePoolRepo: newFakePoolRepo(), countErr: errors.New("count failed")}
+	poolRepo.pools[7] = &ProxyPool{ID: 7, Name: "pool", Status: StatusActive}
+	proxy := mkPoolProxy(71, 7)
+	proxy.PoolHealth = PoolHealthHealthy
+	poolRepo.proxies[proxy.ID] = proxy
+	svc := &adminServiceImpl{accountRepo: accountRepo, poolRepo: poolRepo}
+	poolID := int64(7)
+
+	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{PoolID: &poolID})
+
+	require.ErrorContains(t, err, "assign proxy from pool 7")
+	require.Nil(t, updated)
+	require.Zero(t, accountRepo.updateCalls)
+	require.Nil(t, accountRepo.account.PoolID)
+	require.Equal(t, oldProxyID, *accountRepo.account.ProxyID)
 }

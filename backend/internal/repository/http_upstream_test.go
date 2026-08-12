@@ -22,6 +22,18 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+func TestProxyLogLabelRedactsCredentialsAndURLDetails(t *testing.T) {
+	raw := "http://secret-user:secret-pass@Proxy.Example:8080/private/path?token=secret-query"
+	label := proxyLogLabel(raw)
+	require.Equal(t, "http://proxy.example:8080", label)
+	for _, secret := range []string{"secret-user", "secret-pass", "private", "secret-query"} {
+		require.NotContains(t, label, secret)
+	}
+	require.Equal(t, directProxyKey, proxyLogLabel(""))
+	require.Equal(t, directProxyKey, proxyLogLabel(directProxyKey))
+	require.Equal(t, "configured", proxyLogLabel("http://secret-user:secret-pass@proxy.example/%zz"))
+}
+
 func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	var redirectedCalls atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -749,7 +761,7 @@ func (s *HTTPUpstreamSuite) TestNormalizeProxyURLPreservesOnlyTransportOptions()
 	require.Empty(s.T(), proxyURLWithoutOptions(parsed).RawQuery)
 }
 
-func (s *HTTPUpstreamSuite) TestProxyTransportOptionsAreIndependent() {
+func (s *HTTPUpstreamSuite) TestProxyTransportOptionsEffectiveSemantics() {
 	settings := defaultPoolSettings(nil)
 
 	forceHTTP1, err := url.Parse("socks5h://[2001:db8::1]:1087?" + proxyOptionForceHTTP1 + "=1")
@@ -762,13 +774,26 @@ func (s *HTTPUpstreamSuite) TestProxyTransportOptionsAreIndependent() {
 
 	disableKeepAlive, err := url.Parse("socks5h://[2001:db8::1]:1087?" + proxyOptionDisableKeepAlive + "=1")
 	require.NoError(s.T(), err)
-	transport, err = buildUpstreamTransport(settings, disableKeepAlive, upstreamProtocolModeOpenAIH1)
+	transport, err = buildUpstreamTransport(settings, disableKeepAlive, upstreamProtocolModeOpenAIH2)
 	require.NoError(s.T(), err)
+	require.False(s.T(), transport.ForceAttemptHTTP2)
+	require.NotNil(s.T(), transport.TLSNextProto)
 	require.True(s.T(), transport.DisableKeepAlives)
 
 	tlsTransport, err := buildUpstreamTransportWithTLSFingerprint(settings, disableKeepAlive, &tlsfingerprint.Profile{Name: "test"})
 	require.NoError(s.T(), err)
 	require.True(s.T(), tlsTransport.DisableKeepAlives)
+}
+
+func (s *HTTPUpstreamSuite) TestDisableKeepAliveForcesOpenAIHTTP1ProtocolMode() {
+	s.cfg.Gateway = config.GatewayConfig{
+		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{Enabled: true},
+	}
+	svc := s.newService()
+	proxyKey, parsedProxy, err := normalizeProxyURL("socks5h://[2001:db8::1]:1087?" + proxyOptionDisableKeepAlive + "=1")
+	require.NoError(s.T(), err)
+
+	require.Equal(s.T(), upstreamProtocolModeOpenAIH1, svc.resolveProtocolMode(service.HTTPUpstreamProfileOpenAI, proxyKey, parsedProxy))
 }
 
 // TestAcquireClient_OverLimitReturnsError 测试连接池缓存上限保护

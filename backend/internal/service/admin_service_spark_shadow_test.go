@@ -645,6 +645,38 @@ func TestUpdateAccount_PropagatesProxyToShadow(t *testing.T) {
 	require.Equal(t, newProxy, *storedShadow.ProxyID)
 }
 
+func TestUpdateAccount_PropagatesPoolProxyToShadow(t *testing.T) {
+	ctx := context.Background()
+	repo := newSparkShadowRepoStub()
+	poolRepo := newFakePoolRepo()
+	poolID := int64(17)
+	poolRepo.pools[poolID] = &ProxyPool{ID: poolID, Name: "pool", Status: StatusActive}
+	poolProxy := mkPoolProxy(71, poolID)
+	poolProxy.PoolHealth = PoolHealthHealthy
+	poolRepo.proxies[poolProxy.ID] = poolProxy
+	svc := &adminServiceImpl{accountRepo: repo, poolRepo: poolRepo}
+
+	oldProxy := int64(7)
+	parent := &Account{
+		Name:        "pool-parent",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		ProxyID:     &oldProxy,
+		Credentials: map[string]any{"chatgpt_account_id": "org-pool"},
+	}
+	require.NoError(t, repo.Create(ctx, parent))
+	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "pool-shadow"})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateAccount(ctx, parent.ID, &UpdateAccountInput{PoolID: &poolID})
+	require.NoError(t, err)
+
+	storedShadow := repo.accounts[shadow.ID]
+	require.NotNil(t, storedShadow.ProxyID)
+	require.Equal(t, poolProxy.ID, *storedShadow.ProxyID)
+}
+
 // TestUpdateAccount_RejectsCredentialWriteToShadow 验证安全不变量「影子绝不持有鉴权凭据」
 // 在通用更新路径(UpdateAccount,被 edit/re-auth/refresh/batch 共用)上也被守住:
 // 对影子写入 access_token/refresh_token 必须被拒绝,且影子的 access_token/refresh_token

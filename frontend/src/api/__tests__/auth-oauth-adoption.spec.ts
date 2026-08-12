@@ -94,6 +94,35 @@ describe('oauth adoption auth api', () => {
     })
   })
 
+  it.each(['linuxdo', 'oidc', 'wechat', 'dingtalk'] as const)(
+    'posts captcha proof when completing %s oauth registration',
+    async provider => {
+      const {
+        createPendingLinuxDoOAuthAccount,
+        createPendingOIDCOAuthAccount,
+        createPendingWeChatOAuthAccount,
+        createPendingDingTalkOAuthAccount
+      } = await import('@/api/auth')
+      const complete = {
+        linuxdo: createPendingLinuxDoOAuthAccount,
+        oidc: createPendingOIDCOAuthAccount,
+        wechat: createPendingWeChatOAuthAccount,
+        dingtalk: createPendingDingTalkOAuthAccount
+      }[provider]
+
+      await complete('invite-code', undefined, undefined, {
+        tencent_captcha_ticket: 'ticket-value',
+        tencent_captcha_randstr: '@rand-value'
+      })
+
+      expect(post).toHaveBeenCalledWith(`/auth/oauth/${provider}/complete-registration`, {
+        invitation_code: 'invite-code',
+        tencent_captcha_ticket: 'ticket-value',
+        tencent_captcha_randstr: '@rand-value'
+      })
+    }
+  )
+
   it('posts oidc invitation completion with adoption decisions', async () => {
     const { completeOIDCOAuthRegistration } = await import('@/api/auth')
 

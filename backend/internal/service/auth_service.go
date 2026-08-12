@@ -179,7 +179,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		// 验证邀请码
 		redeemCode, err := s.redeemRepo.GetByCode(ctx, invitationCode)
 		if err != nil {
-			logger.LegacyPrintf("service.auth", "[Auth] Invalid invitation code: %s, error: %v", invitationCode, err)
+			logger.LegacyPrintf("service.auth", "[Auth] Invalid invitation code, error: %v", err)
 			return "", nil, ErrInvitationCodeInvalid
 		}
 		// 检查类型和状态

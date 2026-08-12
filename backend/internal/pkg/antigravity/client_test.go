@@ -317,6 +317,20 @@ func TestNewClient_有代理(t *testing.T) {
 	}
 }
 
+func TestNewClient_代理传输选项(t *testing.T) {
+	client, err := NewClient("http://proxy.example.com:8080?_sub2api_force_http1=1&_sub2api_disable_keep_alive=true")
+	if err != nil {
+		t.Fatalf("NewClient 返回错误: %v", err)
+	}
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport 类型不匹配: %T", client.httpClient.Transport)
+	}
+	if transport.ForceAttemptHTTP2 || transport.TLSNextProto == nil || !transport.DisableKeepAlives {
+		t.Fatalf("代理传输选项未生效: %+v", transport)
+	}
+}
+
 func TestNewClient_空格代理(t *testing.T) {
 	client, err := NewClient("   ")
 	if err != nil {

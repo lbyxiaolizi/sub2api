@@ -111,6 +111,26 @@ func TestCoderOpenAIWSClientDialer_ProxyTransportTLSHandshakeTimeout(t *testing.
 	require.Equal(t, 10*time.Second, transport.TLSHandshakeTimeout)
 }
 
+func TestCoderOpenAIWSClientDialer_ProxyTransportOptions(t *testing.T) {
+	dialer := newDefaultOpenAIWSClientDialer()
+	impl, ok := dialer.(*coderOpenAIWSClientDialer)
+	require.True(t, ok)
+
+	client, err := impl.proxyHTTPClient("http://127.0.0.1:38081?_sub2api_force_http1=1&_sub2api_disable_keep_alive=true")
+	require.NoError(t, err)
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.False(t, transport.ForceAttemptHTTP2)
+	require.NotNil(t, transport.TLSNextProto)
+	require.True(t, transport.DisableKeepAlives)
+
+	req, err := http.NewRequest(http.MethodGet, "http://upstream.example.com", nil)
+	require.NoError(t, err)
+	configuredProxy, err := transport.Proxy(req)
+	require.NoError(t, err)
+	require.Equal(t, "http://127.0.0.1:38081", configuredProxy.String())
+}
+
 func TestCoderOpenAIWSClientConn_DoesNotSupportIdlePingWithoutReader(t *testing.T) {
 	require.False(t, (&coderOpenAIWSClientConn{}).SupportsIdlePingWithoutReader())
 }

@@ -91,6 +91,7 @@
                 @keyup.enter="handleSubmitInvitation"
               />
             </div>
+            <OAuthCompleteRegistrationCaptcha ref="completeRegistrationCaptchaRef" />
             <button
               class="btn btn-primary w-full"
               :disabled="isSubmitting || !invitationCode.trim()"
@@ -323,6 +324,7 @@ import { AuthLayout } from '@/components/layout'
 import PendingOAuthCreateAccountForm, {
   type PendingOAuthCreateAccountPayload
 } from '@/components/auth/PendingOAuthCreateAccountForm.vue'
+import OAuthCompleteRegistrationCaptcha from '@/components/auth/OAuthCompleteRegistrationCaptcha.vue'
 import { apiClient } from '@/api/client'
 import { useAuthStore, useAppStore } from '@/stores'
 import {
@@ -382,6 +384,7 @@ const totpUserEmailMasked = ref('')
 const bindSuccessMessage = t('profile.authBindings.bindSuccess')
 
 const providerName = t('auth.wechatProviderName')
+const completeRegistrationCaptchaRef = ref<InstanceType<typeof OAuthCompleteRegistrationCaptcha> | null>(null)
 const showBackToChooser = computed(
   () => pendingAccountAction.value === 'create_account' || pendingAccountAction.value === 'bind_login'
 )
@@ -866,28 +869,41 @@ async function handleSubmitInvitation() {
   invitationError.value = ''
   if (!invitationCode.value.trim()) return
 
+  const proof = await completeRegistrationCaptchaRef.value?.acquireProof()
+  if (!proof) return
+
   isSubmitting.value = true
   try {
     const affCode = loadOAuthAffiliateCode()
     const decision = currentAdoptionDecision()
+    const hasCaptchaProof = Object.keys(proof).length > 0
     const completion: PendingWeChatCompletion = legacyPendingOAuthToken.value
       ? (
           await apiClient.post<PendingWeChatCompletion>('/auth/oauth/wechat/complete-registration', {
             pending_oauth_token: legacyPendingOAuthToken.value,
             invitation_code: invitationCode.value.trim(),
+            ...proof,
             ...oauthAffiliatePayload(affCode),
             ...serializeAdoptionDecision(decision)
           })
         ).data
       : affCode
-        ? await completeWeChatOAuthRegistration(invitationCode.value.trim(), decision, affCode)
-        : await completeWeChatOAuthRegistration(invitationCode.value.trim(), decision)
+        ? await completeWeChatOAuthRegistration(
+            invitationCode.value.trim(),
+            decision,
+            affCode,
+            hasCaptchaProof ? proof : undefined
+          )
+        : hasCaptchaProof
+          ? await completeWeChatOAuthRegistration(invitationCode.value.trim(), decision, undefined, proof)
+          : await completeWeChatOAuthRegistration(invitationCode.value.trim(), decision)
     await finalizePendingAccountResponse(completion)
   } catch (e: unknown) {
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     invitationError.value =
       err.response?.data?.message || err.message || t('auth.oidc.completeRegistrationFailed')
   } finally {
+    completeRegistrationCaptchaRef.value?.reset()
     isSubmitting.value = false
   }
 }
