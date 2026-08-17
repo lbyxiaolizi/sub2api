@@ -685,6 +685,44 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileHTTP2DisabledUsesHTTP1Transport() {
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH1, entry.protocolMode)
 }
 
+func (s *HTTPUpstreamSuite) TestPerRequestProxyDisablesConnectionReuseAndHTTP2() {
+	s.T().Setenv(upstreamPerRequestProxyPortEnv, "1087")
+	proxyURL, err := url.Parse("socks5h://[2001:db8::1]:1087")
+	require.NoError(s.T(), err)
+
+	transport, err := buildUpstreamTransport(s.newService().resolvePoolSettings(config.ConnectionPoolIsolationProxy, 1), proxyURL, upstreamProtocolModeOpenAIH2)
+	require.NoError(s.T(), err)
+	require.True(s.T(), transport.DisableKeepAlives)
+	require.False(s.T(), transport.ForceAttemptHTTP2)
+	require.NotNil(s.T(), transport.TLSNextProto)
+}
+
+func (s *HTTPUpstreamSuite) TestPerRequestProxyDoesNotAffectOtherProxyPorts() {
+	s.T().Setenv(upstreamPerRequestProxyPortEnv, "1087")
+	proxyURL, err := url.Parse("socks5h://[2001:db8::1]:1086")
+	require.NoError(s.T(), err)
+
+	transport, err := buildUpstreamTransport(s.newService().resolvePoolSettings(config.ConnectionPoolIsolationProxy, 1), proxyURL, upstreamProtocolModeOpenAIH2)
+	require.NoError(s.T(), err)
+	require.False(s.T(), transport.DisableKeepAlives)
+	require.True(s.T(), transport.ForceAttemptHTTP2)
+}
+
+func (s *HTTPUpstreamSuite) TestPerRequestProxyDisablesTLSFingerprintConnectionReuse() {
+	s.T().Setenv(upstreamPerRequestProxyPortEnv, "1087")
+	proxyURL, err := url.Parse("socks5h://[2001:db8::1]:1087")
+	require.NoError(s.T(), err)
+
+	transport, err := buildUpstreamTransportWithTLSFingerprint(
+		s.newService().resolvePoolSettings(config.ConnectionPoolIsolationProxy, 1),
+		proxyURL,
+		&tlsfingerprint.Profile{Name: "test"},
+	)
+	require.NoError(s.T(), err)
+	require.True(s.T(), transport.DisableKeepAlives)
+	require.NotNil(s.T(), transport.TLSNextProto)
+}
+
 func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutChangeRebuildsClient() {
 	s.cfg.Gateway = config.GatewayConfig{
 		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{Enabled: true},

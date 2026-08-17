@@ -92,6 +92,9 @@ const (
 	grokCLIStableVersion   = xai.CLIClientVersion // preferred pin (not the minimum floor)
 	grokCLIVersionOverride = xai.CLIVersionEnv
 	grokFallbackBodyLimit  = 64 << 10
+	// When set to a proxy port (for example 1087), every HTTP request through
+	// that proxy gets a fresh TCP/SOCKS connection and therefore a fresh egress IP.
+	upstreamPerRequestProxyPortEnv = "GATEWAY_UPSTREAM_PER_REQUEST_PROXY_PORT"
 )
 
 const (
@@ -1372,6 +1375,11 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	}
+	if usesPerRequestProxyConnection(proxyURL) {
+		transport.DisableKeepAlives = true
+		transport.ForceAttemptHTTP2 = false
+		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	}
 	if err := proxyutil.ConfigureTransportProxy(transport, proxyURLWithoutOptions(proxyURL)); err != nil {
 		return nil, err
 	}
@@ -1423,6 +1431,10 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 	if proxyOptionEnabled(proxyURL, proxyOptionDisableKeepAlive) {
 		transport.DisableKeepAlives = true
 	}
+	if usesPerRequestProxyConnection(proxyURL) {
+		transport.DisableKeepAlives = true
+		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	}
 
 	// 根据代理类型选择合适的 TLS 指纹 Dialer
 	if proxyURL == nil {
@@ -1457,6 +1469,11 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 	}
 
 	return transport, nil
+}
+
+func usesPerRequestProxyConnection(proxyURL *url.URL) bool {
+	port := strings.TrimSpace(os.Getenv(upstreamPerRequestProxyPortEnv))
+	return port != "" && proxyURL != nil && proxyURL.Port() == port
 }
 
 // trackedBody 带跟踪功能的响应体包装器
