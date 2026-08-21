@@ -37,6 +37,14 @@ func (s *GatewayService) ForwardAsResponses(
 ) (*ForwardResult, error) {
 	startTime := time.Now()
 
+	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)
+	if err != nil {
+		return nil, err
+	}
+	if normalized {
+		body = normalizedBody
+	}
+
 	// 1. Lower Codex client-side tools to function tools understood by Anthropic.
 	adaptedBody, clientToolMapping, err := adaptResponsesClientToolsForAnthropic(body)
 	if err != nil {
@@ -63,7 +71,6 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 4. Model mapping
 	mappedModel := originalModel
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
 	if account.Platform == PlatformKiro {
 		if next := account.GetMappedModel(originalModel); next != "" {
 			mappedModel = next
@@ -82,6 +89,7 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
@@ -109,74 +117,49 @@ func (s *GatewayService) ForwardAsResponses(
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
-		clientToolMapping.CustomTools = responsesCustomToolsWithRewriteAliases(clientToolMapping.CustomTools, toolNameRewriteFromContext(c))
 	}
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
 
-	var resp *http.Response
-	if isKiroDirectModeAccount(account) {
-		var group *Group
-		if parsed != nil {
-			group = parsed.Group
-		}
-		cachePlan := s.prepareKiroResponsesCacheEmulationUsage(ctx, account, group, body, mappedModel, estimateKiroInputTokens(ctx, anthropicBody))
-		resp, _, err = s.openKiroAnthropicStreamResponse(ctx, account, parsed, anthropicBody, mappedModel, originalModel, c.Request.Header, group, cachePlan)
-		if err != nil {
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			setOpsUpstreamError(c, 0, safeErr, "")
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				Kind:               "request_error",
-				Message:            safeErr,
-			})
-			writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
-		}
-	} else {
-		// 8. Get access token
-		token, tokenType, err := s.GetAccessToken(ctx, account)
-		if err != nil {
-			return nil, fmt.Errorf("get access token: %w", err)
-		}
+	// 8. Get access token
+	token, tokenType, err := s.GetAccessToken(ctx, account)
+	if err != nil {
+		return nil, fmt.Errorf("get access token: %w", err)
+	}
 
-		// 9. Get proxy URL
-		proxyURL := ""
-		if account.ProxyID != nil && account.Proxy != nil {
-			proxyURL = account.Proxy.URL()
-		}
+	// 9. Get proxy URL
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
 
-		// 10. Build upstream request
-		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-		upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-		releaseUpstreamCtx()
-		if err != nil {
-			return nil, fmt.Errorf("build upstream request: %w", err)
-		}
+	// 10. Build upstream request
+	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+	releaseUpstreamCtx()
+	if err != nil {
+		return nil, fmt.Errorf("build upstream request: %w", err)
+	}
 
-		// 11. Send request
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-		if err != nil {
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			setOpsUpstreamError(c, 0, safeErr, "")
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				Kind:               "request_error",
-				Message:            safeErr,
-			})
-			writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+	// 11. Send request
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
 		}
+		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		setOpsUpstreamError(c, 0, safeErr, "")
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: 0,
+			Kind:               "request_error",
+			Message:            safeErr,
+		})
+		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
+		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -199,12 +182,14 @@ func (s *GatewayService) ForwardAsResponses(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
+			shouldDisable := false
 			if s.rateLimitService != nil {
-				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
 			}
 			return nil, &UpstreamFailoverError{
-				StatusCode:   resp.StatusCode,
-				ResponseBody: respBody,
+				StatusCode:             resp.StatusCode,
+				ResponseBody:           respBody,
+				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 
@@ -282,38 +267,18 @@ func liftResponsesAdditionalTools(requestBody map[string]any) (bool, error) {
 	return true, nil
 }
 
-func responsesCustomToolsWithRewriteAliases(customTools map[string]bool, rw *ToolNameRewrite) map[string]bool {
-	if len(customTools) == 0 || rw == nil || len(rw.Forward) == 0 {
-		return customTools
-	}
-
-	var out map[string]bool
-	for original, rewritten := range rw.Forward {
-		if !customTools[original] || strings.TrimSpace(rewritten) == "" {
-			continue
-		}
-		if out == nil {
-			out = make(map[string]bool, len(customTools)+1)
-			for name, ok := range customTools {
-				out[name] = ok
-			}
-		}
-		out[rewritten] = true
-	}
-	if out == nil {
-		return customTools
-	}
-	return out
-}
-
 // ExtractResponsesReasoningEffortFromBody reads Responses API reasoning.effort
 // and normalizes it for usage logging.
-func ExtractResponsesReasoningEffortFromBody(body []byte) *string {
+func ExtractResponsesReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if raw == "" {
 		return nil
 	}
-	normalized := normalizeOpenAIReasoningEffort(raw)
+	model := firstNonEmpty(modelCandidates...)
+	if model == "" {
+		model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	}
+	normalized := normalizeOpenAIReasoningEffortForModel(raw, model)
 	if normalized == "" {
 		return nil
 	}
@@ -335,19 +300,6 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	}
 	if src.CacheCreationInputTokens > 0 {
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
-	}
-}
-
-func mergeKiroCreditsFromAnthropicPayload(dst *ClaudeUsage, payload string) {
-	if dst == nil || payload == "" || !gjson.Valid(payload) {
-		return
-	}
-	if credits := kiroCreditsFromUsageGJSON(gjson.Get(payload, "usage")); credits > 0 {
-		dst.KiroCredits = credits
-		return
-	}
-	if credits := kiroCreditsFromUsageGJSON(gjson.Get(payload, "message.usage")); credits > 0 {
-		dst.KiroCredits = credits
 	}
 }
 
@@ -425,7 +377,6 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			if event.Usage != nil {
 				mergeAnthropicUsage(&usage, *event.Usage)
 			}
-			mergeKiroCreditsFromAnthropicPayload(&usage, payload)
 			if event.Delta != nil && event.Delta.StopReason != "" && finalResp != nil {
 				finalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)
 			}
@@ -464,17 +415,18 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		return nil, fmt.Errorf("upstream stream ended without response")
 	}
 
-	// Update usage from accumulated delta. 无条件赋值：纯缓存命中的响应
-	// （input/output 均为 0 但 cache read/write 非 0）不能被整体丢弃。
-	finalResp.Usage = apicompat.AnthropicUsage{
-		InputTokens:              usage.InputTokens,
-		OutputTokens:             usage.OutputTokens,
-		CacheCreationInputTokens: usage.CacheCreationInputTokens,
-		CacheReadInputTokens:     usage.CacheReadInputTokens,
+	// Update usage from accumulated delta
+	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
+		finalResp.Usage = apicompat.AnthropicUsage{
+			InputTokens:              usage.InputTokens,
+			OutputTokens:             usage.OutputTokens,
+			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     usage.CacheReadInputTokens,
+		}
 	}
 
 	// Convert to Responses format
-	responsesResp := apicompat.AnthropicToResponsesResponseWithCustomTools(finalResp, clientToolMapping.CustomTools)
+	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
 	responsesResp.Model = originalModel // Use original model name
 
 	if s.responseHeaderFilter != nil {
@@ -532,7 +484,6 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = originalModel
-	state.CustomTools = clientToolMapping.CustomTools
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
 	var usage ClaudeUsage
 	var firstTokenMs *int
@@ -654,8 +605,6 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			continue
 		}
 
-		mergeKiroCreditsFromAnthropicPayload(&usage, payload)
-
 		if processEvent(&event) {
 			return resultWithUsage(), nil
 		}
@@ -698,4 +647,30 @@ func mapUpstreamStatusCode(code int) int {
 		return http.StatusBadGateway
 	}
 	return code
+}
+
+// responsesCustomToolsWithRewriteAliases adds rewritten aliases of client-side
+// custom tools so upstream references to either name are recognized.
+func responsesCustomToolsWithRewriteAliases(customTools map[string]bool, rw *ToolNameRewrite) map[string]bool {
+	if len(customTools) == 0 || rw == nil || len(rw.Forward) == 0 {
+		return customTools
+	}
+
+	var out map[string]bool
+	for original, rewritten := range rw.Forward {
+		if !customTools[original] || strings.TrimSpace(rewritten) == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]bool, len(customTools)+1)
+			for name, ok := range customTools {
+				out[name] = ok
+			}
+		}
+		out[rewritten] = true
+	}
+	if out == nil {
+		return customTools
+	}
+	return out
 }

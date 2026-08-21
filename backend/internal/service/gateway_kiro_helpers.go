@@ -18,6 +18,19 @@ func kiroCreditsFromUsageGJSON(usage gjson.Result) float64 {
 	return 0
 }
 
+func mergeKiroCreditsFromAnthropicPayload(dst *ClaudeUsage, payload string) {
+	if dst == nil || payload == "" || !gjson.Valid(payload) {
+		return
+	}
+	if credits := kiroCreditsFromUsageGJSON(gjson.Get(payload, "usage")); credits > 0 {
+		dst.KiroCredits = credits
+		return
+	}
+	if credits := kiroCreditsFromUsageGJSON(gjson.Get(payload, "message.usage")); credits > 0 {
+		dst.KiroCredits = credits
+	}
+}
+
 func (s *GatewayService) streamKeepaliveIntervalForAccount(account *Account) time.Duration {
 	if account != nil && account.Platform == PlatformKiro {
 		if s != nil && s.cfg != nil && s.cfg.Gateway.KiroStreamKeepaliveInterval > 0 {

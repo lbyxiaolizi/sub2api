@@ -492,6 +492,9 @@ func ProvideRateLimitService(
 	tokenCacheInvalidator TokenCacheInvalidator,
 ) *RateLimitService {
 	svc := NewRateLimitService(accountRepo, usageRepo, cfg, geminiQuotaService, tempUnschedCache)
+	if healthCache, ok := tempUnschedCache.(OpenAIAPIKeyHealthCache); ok {
+		svc.SetOpenAIAPIKeyHealthCache(healthCache)
+	}
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
 	svc.SetSettingService(settingService)
@@ -775,6 +778,9 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	if err := svc.MigrateCodexBodyFingerprintToSignals(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: migrate codex body fingerprint to signals failed: %v", err)
 	}
+	if err := svc.MigrateGrokDefaultTextModel(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: migrate Grok default text model failed: %v", err)
+	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
 	// enforceCodexIdentityHeaders 是所有 Codex 出站路径共用的纯函数收口点，拿不到 ctx，
 	// 故注入无参解析器；解析器内部自带 60s TTL 缓存，热路径不触库。
@@ -942,6 +948,7 @@ var ProviderSet = wire.NewSet(
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
+	NewChannelMonitorQuotaFetcher,
 	ProvideChannelMonitorV2Service,
 	ProvideChannelMonitorV2Aggregator,
 	NewChannelMonitorRequestTemplateService,
@@ -1000,13 +1007,20 @@ func ProvideChannelMonitorService(
 // 通过 SetScheduler 注入回 service 后再 Start，确保启动时加载所有 enabled monitor，
 // 后续 CRUD 也能即时同步任务表。Runner.Stop 由 cleanup function 调用。
 // settingService 用于 runner 每次 fire 读取功能开关。
-func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *SettingService) *ChannelMonitorRunner {
+// quotaFetcher（账号侧用量聚合）也在此注入：accountUsage/CN 服务在 wire 图中
+// 晚于 channelMonitorService 构造，走 setter 注入避免调整既有构造顺序。
+func ProvideChannelMonitorRunner(
+	svc *ChannelMonitorService,
+	settingService *SettingService,
+	quotaFetcher *ChannelMonitorQuotaFetcher,
+) *ChannelMonitorRunner {
 	r := NewChannelMonitorRunner(svc, settingService)
 	if svc != nil {
 		// Ensure runtime reader is set even if ProvideChannelMonitorService
 		// was constructed without settings (tests / alternate providers).
 		svc.SetRuntimeReader(settingService)
 		svc.SetScheduler(r)
+		svc.SetQuotaFetcher(quotaFetcher)
 	}
 	r.Start()
 	return r
