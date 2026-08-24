@@ -98,6 +98,7 @@ var ProviderSet = wire.NewSet(
 	NewErrorPassthroughRepository,
 	NewPromptRuleRepository,
 	NewTLSFingerprintProfileRepository,
+	NewPluginRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorV2Repository,

@@ -4,6 +4,8 @@ import { resolve } from 'node:path'
 
 // parseProxyUrl 未导出，通过源码级断言锁定 IPv6 兼容的正则结构，
 // 并用提取出的正则在测试内直接验证行为。
+// parseProxyUrl is not exported; assert on the source to lock in the
+// bracketed-IPv6 host alternative and exercise the regex directly.
 const source = readFileSync(
   resolve(process.cwd(), 'src/views/admin/ProxiesView.vue'),
   'utf8'
@@ -11,6 +13,7 @@ const source = readFileSync(
 
 function extractRegex(): RegExp {
   const match = source.match(/const regex =\s*\n\s*(\/\^\(https\?[^;\n]+\/i)\n/)
+  const match = source.match(/const regex =\s*\n?\s*(\/\^\(https\?[^;\n]+\/i)\n/)
   expect(match, 'parseProxyUrl regex not found in ProxiesView.vue').toBeTruthy()
   return new RegExp((match as RegExpMatchArray)[1].slice(1, -2), 'i')
 }
