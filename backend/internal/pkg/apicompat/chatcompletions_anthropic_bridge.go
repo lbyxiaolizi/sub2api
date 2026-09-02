@@ -249,15 +249,8 @@ func anthropicUserToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 
 // anthropicAssistantToChatMessages handles an Anthropic assistant message.
 // Text content → assistant message content; tool_use blocks → tool_calls on the
-// same assistant message; thinking blocks → assistant reasoning_content.
-//
-// Thinking blocks must be preserved for passback-required OpenAI-compatible
-// upstreams (DeepSeek/Kimi/GLM/Moonshot): when the request runs in thinking
-// mode, DeepSeek rejects multi-turn histories whose assistant messages lack the
-// reasoning_content from the previous turn with 400 "The `reasoning_content`
-// in the thinking mode must be passed back to the API". Mapping thinking →
-// reasoning_content is the exact inverse of chatMessageToAnthropicBlocks, so
-// the reasoning round-trips through the CC conversion intact.
+// same assistant message; thinking blocks → reasoning_content, but only on a
+// message that carries tool calls (see anthropicThinkingToReasoningContent).
 func anthropicAssistantToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 	// Plain string → single assistant message.
 	var s string
@@ -277,23 +270,6 @@ func anthropicAssistantToChatMessages(raw json.RawMessage) ([]ChatMessage, error
 		content, _ := json.Marshal(text)
 		msg.Content = content
 	}
-
-	// Thinking text becomes reasoning_content. The Anthropic signature is
-	// provider-specific ciphertext for the strict upstreams and is not replayed
-	// to CC upstreams (DeepSeek-style thinking carries no signature).
-	var reasoning []string
-	for _, b := range blocks {
-		if b.Type != "thinking" {
-			continue
-		}
-		if t := strings.TrimSpace(b.Thinking); t != "" {
-			reasoning = append(reasoning, t)
-		}
-	}
-	if len(reasoning) > 0 {
-		msg.ReasoningContent = strings.Join(reasoning, "\n\n")
-	}
-
 	for _, b := range blocks {
 		if b.Type != "tool_use" {
 			continue
@@ -312,7 +288,38 @@ func anthropicAssistantToChatMessages(raw json.RawMessage) ([]ChatMessage, error
 		})
 	}
 
+	msg.ReasoningContent = anthropicThinkingToReasoningContent(blocks, len(msg.ToolCalls) > 0 || text == "")
+
 	return []ChatMessage{msg}, nil
+}
+
+// anthropicThinkingToReasoningContent folds thinking blocks back into the
+// Chat Completions reasoning_content field.
+//
+// chatMessageToAnthropicBlocks emits the upstream's reasoning_content as a
+// thinking block on the way out, so a multi-turn client echoes it back on the
+// next request; dropping it here made the bridge lose exactly what it had just
+// produced. DeepSeek's thinking mode requires the reasoning_content that
+// produced a tool call to be replayed on that assistant message and answers
+// 400 otherwise, which is why buildChatMessagesFromItems already carries
+// pendingReasoning onto assistant tool-call messages in the Responses→Chat
+// bridge. hasToolCalls keeps the scope identical to that sibling: reasoning
+// rides along with tool calls only, never on a plain assistant text turn.
+//
+// redacted_thinking blocks and signature-only placeholders carry no plaintext
+// and contribute nothing. Multiple blocks join with "\n", matching
+// extractResponsesReasoningText.
+func anthropicThinkingToReasoningContent(blocks []AnthropicContentBlock, hasToolCalls bool) string {
+	if !hasToolCalls {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "thinking" && b.Thinking != "" {
+			parts = append(parts, b.Thinking)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // anthropicToolsToChatTools maps Anthropic tool definitions to Chat Completions
