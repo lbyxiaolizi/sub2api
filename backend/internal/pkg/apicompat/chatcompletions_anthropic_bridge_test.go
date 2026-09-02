@@ -143,10 +143,11 @@ func TestAnthropicToChatCompletionsRequest_ThinkingPreservedAsReasoningContent(t
 	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 1)
-	// Text stays as content; thinking is preserved as reasoning_content so
-	// passback-required upstreams (DeepSeek thinking mode) accept the history.
+	// Only text survives. Thinking is dropped because this turn carries no tool
+	// calls — reasoning rides along with tool calls only, matching the
+	// Responses→Chat bridge (see anthropicThinkingToReasoningContent).
 	require.Equal(t, `"answer"`, string(out.Messages[0].Content))
-	require.Equal(t, "secret thoughts", out.Messages[0].ReasoningContent)
+	require.Empty(t, out.Messages[0].ReasoningContent)
 }
 
 func TestAnthropicToChatCompletionsRequest_ThinkingOnlyAssistantSurvives(t *testing.T) {

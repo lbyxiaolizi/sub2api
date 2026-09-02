@@ -1188,22 +1188,16 @@ func (s *GatewayService) calculateTokenCost(
 		gid := apiKey.Group.ID
 		resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
 	}
-	var legacy *LegacyLongContextRule
-	if opts.LongContextThreshold > 0 {
-		legacy = &LegacyLongContextRule{Threshold: opts.LongContextThreshold, Multiplier: opts.LongContextMultiplier}
-	}
-
 	cost, err := s.billingService.CalculateTokenCostForRequest(TokenCostRequest{
-		Ctx:               ctx,
-		Model:             billingModel,
-		Group:             apiKey.Group,
-		Tokens:            tokens,
-		RateMultiplier:    multiplier,
-		PricingAt:         pricingAt,
-		ServiceTier:       optionalStringValue(result.ServiceTier),
-		Resolver:          s.resolver,
-		Resolved:          resolved,
-		LegacyLongContext: legacy,
+		Ctx:            ctx,
+		Model:          billingModel,
+		Group:          apiKey.Group,
+		Tokens:         tokens,
+		RateMultiplier: multiplier,
+		PricingAt:      pricingAt,
+		ServiceTier:    optionalStringValue(result.ServiceTier),
+		Resolver:       s.resolver,
+		Resolved:       resolved,
 	})
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
@@ -1219,14 +1213,6 @@ func (s *GatewayService) calculateTokenCost(
 		cost.BillingMode = string(BillingModeToken)
 	}
 	return cost
-}
-
-// LegacyLongContextRule 透传 BillingService 的平台旧长上下文规则，供入口 handler 取用。
-func (s *GatewayService) LegacyLongContextRule(platform string) *LegacyLongContextRule {
-	if s == nil || s.billingService == nil {
-		return nil
-	}
-	return s.billingService.LegacyLongContextRule(platform)
 }
 
 // buildRecordUsageLog 构建使用日志并设置计费模式。
@@ -1269,9 +1255,10 @@ func (s *GatewayService) buildRecordUsageLog(
 		UpstreamModel:         optionalTrimmedStringPtr(result.UpstreamModel),
 		UpstreamResponseModel: optionalTrimmedStringPtr(result.UpstreamResponseModel),
 		UpstreamModelMismatch: upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
-		ServiceTier:           result.ServiceTier,
-		ReasoningEffort:       result.ReasoningEffort,
-		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
+		ServiceTier:              result.ServiceTier,
+		ReasoningEffort:          result.ReasoningEffort,
+		RequestedReasoningEffort: coalesceRequestedReasoningEffort(result.RequestedReasoningEffort, result.ReasoningEffort),
+		InboundEndpoint:          optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
