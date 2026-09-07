@@ -170,11 +170,6 @@ Sub2API は、AI 製品のサブスクリプションから API クォータを�
 </tr>
 
 <tr>
-<td width="180"><a href="https://www.novada.com/?sub2api/"><img src="assets/partners/logos/novada.png" alt="Novada" width="150"></a></td>
-<td>Novada のご支援に感謝します！<a href="https://www.novada.com/?sub2api/">Novada</a> は、AI アプリケーションや自動化ワークフローを構築する開発者向けに、レジデンシャル、ISP、データセンター、モバイルプロキシに加え、Web Unlocker と Scraper API を提供しています。グローバルな IP カバレッジ、柔軟なローテーション／スティッキーセッション、精密なジオターゲティングにより、AI エージェントワークフロー、クロスリージョンテスト、Web リサーチ、ブラウザ自動化などのシーンで、チームが Web データへ確実にアクセスできるよう支援します。Novada で、より安定しスケーラブルな AI ワークフローを構築しましょう。</td>
-</tr>
-
-<tr>
 <td width="180"><a href="https://s.qiniu.com/u6rQrq"><img src="assets/partners/logos/qiniu.jpg" alt="Qiniu AI" width="150"></a></td>
 <td>七牛云AI のご支援に感謝します！七牛云AI は、七牛云（02567.HK）傘下のエンタープライズ向け大規模モデル MaaS プラットフォームです。世界の主要モデル 150+ をワンストップで利用でき、グローバル主要モデルプロバイダーのプロトコルに対応し、テキスト、画像、音声、動画、ファイル処理などのフルモーダル処理能力をカバー。169万を超える企業・開発者ユーザーにサービスを提供しています。Sub2API ユーザー向けの限定特典として、<a href="https://s.qiniu.com/u6rQrq">こちらのリンク</a>から登録すると、企業ユーザーは 1200万 Token、開発者は 300万 Token を無料で獲得できます。</td>
 </tr>

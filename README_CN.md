@@ -200,11 +200,6 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 </tr>
 
 <tr>
-<td width="180"><a href="https://www.novada.com/?sub2api/"><img src="assets/partners/logos/novada.png" alt="Novada" width="150"></a></td>
-<td>感谢 <a href="https://www.novada.com/?sub2api/">Novada</a> 赞助本项目！Novada 为构建 AI 应用与自动化工作流的开发者提供住宅代理、ISP 代理、数据中心代理与移动代理，以及 Web Unlocker 和 Scraper API。凭借全球 IP 覆盖、灵活的轮换与粘性会话以及精准的地理定位，Novada 帮助团队在 AI Agent 工作流、跨区域测试、网络调研与浏览器自动化等场景中稳定获取网络数据。立即体验 Novada，构建更稳定、更可扩展的 AI 工作流。</td>
-</tr>
-
-<tr>
 <td width="180"><a href="https://s.qiniu.com/u6rQrq"><img src="assets/partners/logos/qiniu.jpg" alt="七牛云AI" width="150"></a></td>
 <td>感谢 七牛云AI 赞助本项目！七牛云AI 是七牛云（02567.HK）旗下企业级大模型 MaaS 平台，一站式调用全球 150+ 主流模型，兼容全球主流模型厂商协议，覆盖文本、图像、音频、视频、文件处理等全模态处理能力，服务超过169万企业及开发者用户。七牛云 AI 为 Sub2API 的用户提供了专属福利：通过<a href="https://s.qiniu.com/u6rQrq">此链接</a>注册，企业用户免费领1200万Token，开发者免费领300万Token。</td>
 </tr>
