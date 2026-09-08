@@ -446,7 +446,9 @@ type CreateAccountInput struct {
 	GroupIDs           []int64
 	ExpiresAt          *int64
 	AutoPauseOnExpired *bool
-	ProbeEnabled       *bool
+	// DisableAutoTempUnschedulable 永不自动临时不可调度（nil=不改/默认关闭）。
+	DisableAutoTempUnschedulable *bool
+	ProbeEnabled                 *bool
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
@@ -464,24 +466,27 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
-	Name                  string
-	Notes                 *string
-	Type                  string // Account type: oauth, setup-token, apikey
-	Credentials           map[string]any
-	Extra                 map[string]any
-	ProxyID               *int64
-	PoolID                *int64   // 代理池绑定：nil=不改 0=解绑池 >0=绑定池
-	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
-	Priority              *int     // 使用指针区分"未提供"和"设置为0"
-	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
-	LoadFactor            *int
-	Status                string
-	GroupIDs              *[]int64
-	ExpiresAt             *int64
-	AutoPauseOnExpired    *bool
-	ProbeEnabled          *bool
-	RateSyncEnabled       *bool
-	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
+	Name               string
+	Notes              *string
+	Type               string // Account type: oauth, setup-token, apikey
+	Credentials        map[string]any
+	Extra              map[string]any
+	ProxyID            *int64
+	PoolID             *int64   // 代理池绑定：nil=不改 0=解绑池 >0=绑定池
+	Concurrency        *int     // 使用指针区分"未提供"和"设置为0"
+	Priority           *int     // 使用指针区分"未提供"和"设置为0"
+	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
+	LoadFactor         *int
+	Status             string
+	GroupIDs           *[]int64
+	ExpiresAt          *int64
+	AutoPauseOnExpired *bool
+	ProbeEnabled       *bool
+	RateSyncEnabled    *bool
+	// DisableAutoTempUnschedulable 永不自动临时不可调度；从关闭切到开启时
+	// 会同时清除账号当前已有的临时不可调度标记。
+	DisableAutoTempUnschedulable *bool
+	SkipMixedChannelCheck        bool // 跳过混合渠道检查（用户已确认风险）
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.

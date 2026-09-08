@@ -3860,6 +3860,35 @@
           </button>
         </div>
       </div>
+      <div>
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{
+              t('admin.accounts.disableAutoTempUnschedulable')
+            }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.disableAutoTempUnschedulableDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="disable-auto-temp-unschedulable-toggle"
+            @click="disableAutoTempUnschedulable = !disableAutoTempUnschedulable"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              disableAutoTempUnschedulable ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                disableAutoTempUnschedulable ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
 
       <div v-if="form.platform === 'antigravity'" class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600">
         <!-- Mixed Scheduling (only for antigravity accounts) -->
@@ -4849,6 +4878,7 @@ const applyGrokOAuthUpstreamConfig = (credentials: Record<string, unknown>) => {
 }
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
+const disableAutoTempUnschedulable = ref(false)
 const openaiPassthroughEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -5912,6 +5942,7 @@ const resetForm = () => {
   grokOAuthBaseUrl.value = ''
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
+  disableAutoTempUnschedulable.value = false
   openaiPassthroughEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
@@ -6506,7 +6537,8 @@ const handleSubmit = async () => {
     group_ids: form.group_ids,
     extra: withUpstreamRequestIdHeader(extra),
     upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
-    auto_pause_on_expired: autoPauseOnExpired.value
+    auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
   })
 }
 
@@ -6660,7 +6692,8 @@ const createAccountAndFinish = async (
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
     upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
-    auto_pause_on_expired: autoPauseOnExpired.value
+    auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
   })
 }
 
@@ -6725,7 +6758,8 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
           expires_at: form.expires_at,
-          auto_pause_on_expired: autoPauseOnExpired.value
+          auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
         })
         successCount++
       } catch (error: any) {
@@ -6793,7 +6827,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
       expires_at: form.expires_at,
-      auto_pause_on_expired: autoPauseOnExpired.value
+      auto_pause_on_expired: autoPauseOnExpired.value,
     })
 
     const successCount = result.created?.length || 0
@@ -6903,7 +6937,8 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
           expires_at: form.expires_at,
-          auto_pause_on_expired: autoPauseOnExpired.value
+          auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
         })
         successCount++
       } catch (error: any) {
@@ -7003,7 +7038,8 @@ const handleOpenAIExchange = async (authCode: string) => {
         rate_multiplier: form.rate_multiplier,
         group_ids: form.group_ids,
         expires_at: form.expires_at,
-        auto_pause_on_expired: autoPauseOnExpired.value
+        auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
       })
       appStore.showSuccess(t('admin.accounts.accountCreated'))
     }
@@ -7287,7 +7323,8 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             rate_multiplier: form.rate_multiplier,
             group_ids: form.group_ids,
             expires_at: form.expires_at,
-            auto_pause_on_expired: autoPauseOnExpired.value
+            auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
           })
         }
 
@@ -7387,7 +7424,8 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
           expires_at: form.expires_at,
-          auto_pause_on_expired: autoPauseOnExpired.value
+          auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
         })
         await adminAPI.accounts.create(createPayload)
         successCount++
@@ -7863,7 +7901,8 @@ const handleCookieAuth = async (sessionKey: string) => {
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
           expires_at: form.expires_at,
-          auto_pause_on_expired: autoPauseOnExpired.value
+          auto_pause_on_expired: autoPauseOnExpired.value,
+          disable_auto_temp_unschedulable: disableAutoTempUnschedulable.value
         })
 
         successCount++

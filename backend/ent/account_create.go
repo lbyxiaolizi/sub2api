@@ -364,6 +364,20 @@ func (_c *AccountCreate) SetNillableTempUnschedulableReason(v *string) *AccountC
 	return _c
 }
 
+// SetDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field.
+func (_c *AccountCreate) SetDisableAutoTempUnschedulable(v bool) *AccountCreate {
+	_c.mutation.SetDisableAutoTempUnschedulable(v)
+	return _c
+}
+
+// SetNillableDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableDisableAutoTempUnschedulable(v *bool) *AccountCreate {
+	if v != nil {
+		_c.SetDisableAutoTempUnschedulable(*v)
+	}
+	return _c
+}
+
 // SetSessionWindowStart sets the "session_window_start" field.
 func (_c *AccountCreate) SetSessionWindowStart(v time.Time) *AccountCreate {
 	_c.mutation.SetSessionWindowStart(v)
@@ -597,6 +611,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultSchedulable
 		_c.mutation.SetSchedulable(v)
 	}
+	if _, ok := _c.mutation.DisableAutoTempUnschedulable(); !ok {
+		v := account.DefaultDisableAutoTempUnschedulable
+		_c.mutation.SetDisableAutoTempUnschedulable(v)
+	}
 	if _, ok := _c.mutation.QuotaDimension(); !ok {
 		v := account.DefaultQuotaDimension
 		_c.mutation.SetQuotaDimension(v)
@@ -664,6 +682,9 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.Schedulable(); !ok {
 		return &ValidationError{Name: "schedulable", err: errors.New(`ent: missing required field "Account.schedulable"`)}
+	}
+	if _, ok := _c.mutation.DisableAutoTempUnschedulable(); !ok {
+		return &ValidationError{Name: "disable_auto_temp_unschedulable", err: errors.New(`ent: missing required field "Account.disable_auto_temp_unschedulable"`)}
 	}
 	if v, ok := _c.mutation.SessionWindowStatus(); ok {
 		if err := account.SessionWindowStatusValidator(v); err != nil {
@@ -804,6 +825,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.TempUnschedulableReason(); ok {
 		_spec.SetField(account.FieldTempUnschedulableReason, field.TypeString, value)
 		_node.TempUnschedulableReason = &value
+	}
+	if value, ok := _c.mutation.DisableAutoTempUnschedulable(); ok {
+		_spec.SetField(account.FieldDisableAutoTempUnschedulable, field.TypeBool, value)
+		_node.DisableAutoTempUnschedulable = value
 	}
 	if value, ok := _c.mutation.SessionWindowStart(); ok {
 		_spec.SetField(account.FieldSessionWindowStart, field.TypeTime, value)
@@ -1399,6 +1424,18 @@ func (u *AccountUpsert) UpdateTempUnschedulableReason() *AccountUpsert {
 // ClearTempUnschedulableReason clears the value of the "temp_unschedulable_reason" field.
 func (u *AccountUpsert) ClearTempUnschedulableReason() *AccountUpsert {
 	u.SetNull(account.FieldTempUnschedulableReason)
+	return u
+}
+
+// SetDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field.
+func (u *AccountUpsert) SetDisableAutoTempUnschedulable(v bool) *AccountUpsert {
+	u.Set(account.FieldDisableAutoTempUnschedulable, v)
+	return u
+}
+
+// UpdateDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateDisableAutoTempUnschedulable() *AccountUpsert {
+	u.SetExcluded(account.FieldDisableAutoTempUnschedulable)
 	return u
 }
 
@@ -2025,6 +2062,20 @@ func (u *AccountUpsertOne) UpdateTempUnschedulableReason() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearTempUnschedulableReason() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearTempUnschedulableReason()
+	})
+}
+
+// SetDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field.
+func (u *AccountUpsertOne) SetDisableAutoTempUnschedulable(v bool) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetDisableAutoTempUnschedulable(v)
+	})
+}
+
+// UpdateDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateDisableAutoTempUnschedulable() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateDisableAutoTempUnschedulable()
 	})
 }
 
@@ -2831,6 +2882,20 @@ func (u *AccountUpsertBulk) UpdateTempUnschedulableReason() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearTempUnschedulableReason() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearTempUnschedulableReason()
+	})
+}
+
+// SetDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field.
+func (u *AccountUpsertBulk) SetDisableAutoTempUnschedulable(v bool) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetDisableAutoTempUnschedulable(v)
+	})
+}
+
+// UpdateDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateDisableAutoTempUnschedulable() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateDisableAutoTempUnschedulable()
 	})
 }
 

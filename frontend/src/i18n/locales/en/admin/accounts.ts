@@ -871,6 +871,8 @@ export default {
       },
       autoPauseOnExpired: 'Auto Pause On Expired',
       autoPauseOnExpiredDesc: 'When enabled, the account will auto pause scheduling after it expires',
+      disableAutoTempUnschedulable: 'Never Temp Unschedulable',
+      disableAutoTempUnschedulableDesc: 'When enabled, errors never mark this account as temporarily unschedulable, and any active mark is cleared',
 	  autoPause5hThreshold: '5h Usage Threshold (%)',
 	  autoPause7dThreshold: '7d Usage Threshold (%)',
 	  autoPauseThresholdHint: 'Leave empty or set 0 to use the global default threshold (configured in Ops settings); set a value to override the global default. Reaching the threshold only skips the account during scheduling and does not modify schedulable.',

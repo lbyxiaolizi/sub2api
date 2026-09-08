@@ -47,8 +47,11 @@ type Account struct {
 	LastUsedAt         *time.Time
 	ExpiresAt          *time.Time
 	AutoPauseOnExpired bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// DisableAutoTempUnschedulable 永不自动临时不可调度：开启后任何错误路径
+	// 都不得将该账号标记为临时不可调度。
+	DisableAutoTempUnschedulable bool
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
 
 	Schedulable bool
 

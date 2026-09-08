@@ -188,6 +188,11 @@ func (Account) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "text"}),
+		// disable_auto_temp_unschedulable: 永不自动临时不可调度
+		// 开启后任何错误路径都不得将该账号标记为临时不可调度
+		field.Bool("disable_auto_temp_unschedulable").
+			Default(false).
+			Comment("Never auto-mark account as temporarily unschedulable."),
 
 		// session_window_*: 会话窗口相关字段
 		// 用于管理某些需要会话时间窗口的 API（如 Claude Pro）

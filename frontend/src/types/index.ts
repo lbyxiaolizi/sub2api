@@ -1280,6 +1280,7 @@ kiro_credit_unit_price_usd?: number
   last_used_at: string | null
   expires_at: number | null
   auto_pause_on_expired: boolean
+  disable_auto_temp_unschedulable: boolean
   created_at: string
   updated_at: string
   proxy?: Proxy
@@ -1590,6 +1591,7 @@ export interface CreateAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  disable_auto_temp_unschedulable?: boolean
   upstream_billing_probe_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
 }
@@ -1611,6 +1613,7 @@ export interface UpdateAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  disable_auto_temp_unschedulable?: boolean
   upstream_billing_probe_enabled?: boolean
   upstream_billing_rate_sync_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
@@ -1703,6 +1706,7 @@ export interface AdminDataAccount {
   rate_multiplier?: number | null
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  disable_auto_temp_unschedulable?: boolean
 }
 
 export interface AdminDataImportError {

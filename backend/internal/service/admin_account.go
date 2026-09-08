@@ -341,6 +341,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		expiresAt = &unix
 	}
 	autoPauseOnExpired := source.AutoPauseOnExpired
+	disableAutoTempUnschedulable := source.DisableAutoTempUnschedulable
 	groups, groupIDs := duplicateAccountGroups(source)
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
@@ -351,22 +352,23 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		proxyID = source.ProxyFallbackOriginID
 	}
 	input := &CreateAccountInput{
-		Name:                  duplicateAccountName(source.Name),
-		Notes:                 cloneAccountValuePointer(source.Notes),
-		Platform:              source.Platform,
-		Type:                  source.Type,
-		Credentials:           credentials,
-		Extra:                 extra,
-		ProxyID:               cloneAccountValuePointer(proxyID),
-		Concurrency:           source.Concurrency,
-		Priority:              source.Priority,
-		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
-		LoadFactor:            cloneAccountValuePointer(source.LoadFactor),
-		GroupIDs:              groupIDs,
-		ExpiresAt:             expiresAt,
-		AutoPauseOnExpired:    &autoPauseOnExpired,
-		SkipDefaultGroupBind:  true,
-		SkipMixedChannelCheck: true,
+		Name:                         duplicateAccountName(source.Name),
+		Notes:                        cloneAccountValuePointer(source.Notes),
+		Platform:                     source.Platform,
+		Type:                         source.Type,
+		Credentials:                  credentials,
+		Extra:                        extra,
+		ProxyID:                      cloneAccountValuePointer(proxyID),
+		Concurrency:                  source.Concurrency,
+		Priority:                     source.Priority,
+		RateMultiplier:               cloneAccountValuePointer(source.RateMultiplier),
+		LoadFactor:                   cloneAccountValuePointer(source.LoadFactor),
+		GroupIDs:                     groupIDs,
+		ExpiresAt:                    expiresAt,
+		AutoPauseOnExpired:           &autoPauseOnExpired,
+		DisableAutoTempUnschedulable: &disableAutoTempUnschedulable,
+		SkipDefaultGroupBind:         true,
+		SkipMixedChannelCheck:        true,
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
@@ -518,6 +520,10 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	} else {
 		account.AutoPauseOnExpired = true
 	}
+	if input.DisableAutoTempUnschedulable != nil {
+		account.DisableAutoTempUnschedulable = *input.DisableAutoTempUnschedulable
+	}
+
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier < 0 {
 			return nil, errors.New("rate_multiplier must be >= 0")
@@ -660,6 +666,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	hadTempUnschedulableMark := account.TempUnschedulableUntil != nil && account.TempUnschedulableUntil.After(time.Now())
+
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
 		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
@@ -933,6 +941,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
+	if input.DisableAutoTempUnschedulable != nil {
+		account.DisableAutoTempUnschedulable = *input.DisableAutoTempUnschedulable
+	}
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
@@ -988,6 +999,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				return nil, err
 			}
 		}
+	}
+	// 开启永不自动临时不可调度时，顺手清除账号当前已有的临时标记。
+	if input.DisableAutoTempUnschedulable != nil && *input.DisableAutoTempUnschedulable && hadTempUnschedulableMark {
+		if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
+			return nil, err
+		}
+		account.TempUnschedulableUntil = nil
+		account.TempUnschedulableReason = ""
 	}
 
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。

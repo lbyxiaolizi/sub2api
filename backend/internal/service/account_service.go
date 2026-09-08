@@ -186,6 +186,8 @@ type CreateAccountRequest struct {
 	GroupIDs           []int64        `json:"group_ids"`
 	ExpiresAt          *time.Time     `json:"expires_at"`
 	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
+	// DisableAutoTempUnschedulable 永不自动临时不可调度。
+	DisableAutoTempUnschedulable *bool `json:"disable_auto_temp_unschedulable"`
 }
 
 // UpdateAccountRequest 更新账号请求
@@ -201,6 +203,8 @@ type UpdateAccountRequest struct {
 	GroupIDs           *[]int64        `json:"group_ids"`
 	ExpiresAt          *time.Time      `json:"expires_at"`
 	AutoPauseOnExpired *bool           `json:"auto_pause_on_expired"`
+	// DisableAutoTempUnschedulable 永不自动临时不可调度。
+	DisableAutoTempUnschedulable *bool `json:"disable_auto_temp_unschedulable"`
 }
 
 // AccountService 账号管理服务
@@ -248,6 +252,9 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	} else {
 		account.AutoPauseOnExpired = true
+	}
+	if req.DisableAutoTempUnschedulable != nil {
+		account.DisableAutoTempUnschedulable = *req.DisableAutoTempUnschedulable
 	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {
@@ -365,6 +372,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
+	}
+	if req.DisableAutoTempUnschedulable != nil {
+		account.DisableAutoTempUnschedulable = *req.DisableAutoTempUnschedulable
 	}
 
 	// 先验证分组是否存在（在任何写操作之前）

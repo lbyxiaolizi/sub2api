@@ -398,3 +398,40 @@ func (e *recordingSQLExecutor) ExecContext(ctx context.Context, query string, ar
 func (e *recordingSQLExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	return nil, sql.ErrNoRows
 }
+
+func TestAccountRepository_TempUnschedulableWritesRespectDisableFlag(t *testing.T) {
+	until := time.Now().Add(10 * time.Minute)
+	snapshot := service.GrokCredentialMutationSnapshot{
+		CredentialsJSON: `{"access_token":"access","refresh_token":"refresh","_token_version":123}`,
+	}
+
+	t.Run("SetTempUnschedulable", func(t *testing.T) {
+		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
+		repo := newAccountRepositoryWithSQL(nil, exec, nil)
+		require.NoError(t, repo.SetTempUnschedulable(context.Background(), 42, until, "retry"))
+		require.Len(t, exec.execQueries, 1)
+		require.Contains(t, normalizeSQLWhitespace(exec.execQueries[0]), "disable_auto_temp_unschedulable IS NOT TRUE")
+	})
+
+	t.Run("SetGrokCredentialTempUnschedulableIfMatch", func(t *testing.T) {
+		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
+		repo := newAccountRepositoryWithSQL(nil, exec, nil)
+		_, err := repo.SetGrokCredentialTempUnschedulableIfMatch(context.Background(), 42, snapshot, until, "temporary")
+		require.NoError(t, err)
+		require.Len(t, exec.execQueries, 1)
+		require.Contains(t, normalizeSQLWhitespace(exec.execQueries[0]), "a.disable_auto_temp_unschedulable IS NOT TRUE")
+	})
+
+	t.Run("SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged", func(t *testing.T) {
+		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
+		repo := newAccountRepositoryWithSQL(nil, exec, nil)
+		_, err := repo.SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged(
+			context.Background(), 42,
+			map[string]any{"refresh_token": "attempted"},
+			nil, until, "temporary",
+		)
+		require.NoError(t, err)
+		require.Len(t, exec.execQueries, 1)
+		require.Contains(t, normalizeSQLWhitespace(exec.execQueries[0]), "a.disable_auto_temp_unschedulable IS NOT TRUE")
+	})
+}

@@ -70,6 +70,8 @@ const (
 	FieldTempUnschedulableUntil = "temp_unschedulable_until"
 	// FieldTempUnschedulableReason holds the string denoting the temp_unschedulable_reason field in the database.
 	FieldTempUnschedulableReason = "temp_unschedulable_reason"
+	// FieldDisableAutoTempUnschedulable holds the string denoting the disable_auto_temp_unschedulable field in the database.
+	FieldDisableAutoTempUnschedulable = "disable_auto_temp_unschedulable"
 	// FieldSessionWindowStart holds the string denoting the session_window_start field in the database.
 	FieldSessionWindowStart = "session_window_start"
 	// FieldSessionWindowEnd holds the string denoting the session_window_end field in the database.
@@ -169,6 +171,7 @@ var Columns = []string{
 	FieldOverloadUntil,
 	FieldTempUnschedulableUntil,
 	FieldTempUnschedulableReason,
+	FieldDisableAutoTempUnschedulable,
 	FieldSessionWindowStart,
 	FieldSessionWindowEnd,
 	FieldSessionWindowStatus,
@@ -230,6 +233,8 @@ var (
 	DefaultAutoPauseOnExpired bool
 	// DefaultSchedulable holds the default value on creation for the "schedulable" field.
 	DefaultSchedulable bool
+	// DefaultDisableAutoTempUnschedulable holds the default value on creation for the "disable_auto_temp_unschedulable" field.
+	DefaultDisableAutoTempUnschedulable bool
 	// SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	SessionWindowStatusValidator func(string) error
 )
@@ -391,6 +396,11 @@ func ByTempUnschedulableUntil(opts ...sql.OrderTermOption) OrderOption {
 // ByTempUnschedulableReason orders the results by the temp_unschedulable_reason field.
 func ByTempUnschedulableReason(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTempUnschedulableReason, opts...).ToFunc()
+}
+
+// ByDisableAutoTempUnschedulable orders the results by the disable_auto_temp_unschedulable field.
+func ByDisableAutoTempUnschedulable(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDisableAutoTempUnschedulable, opts...).ToFunc()
 }
 
 // BySessionWindowStart orders the results by the session_window_start field.

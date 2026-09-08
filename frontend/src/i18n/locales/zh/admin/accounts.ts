@@ -947,6 +947,8 @@ export default {
       },
       autoPauseOnExpired: '过期自动暂停调度',
       autoPauseOnExpiredDesc: '启用后，账号过期将自动暂停调度',
+      disableAutoTempUnschedulable: '永不临时不可调度',
+      disableAutoTempUnschedulableDesc: '开启后任何错误都不会将该账号标记为临时不可调度，并清除当前已有的临时标记',
 	  autoPause5hThreshold: '5h 用量阈值(%)',
 	  autoPause7dThreshold: '7d 用量阈值(%)',
 	  autoPauseThresholdHint: '留空或填 0 表示使用全局默认阈值（在运维设置中配置）；填具体值则覆盖全局默认。达到阈值后仅在调度时跳过账号，不修改 schedulable。',

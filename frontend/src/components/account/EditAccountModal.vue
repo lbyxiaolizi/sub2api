@@ -2445,6 +2445,35 @@
           </button>
         </div>
       </div>
+      <div>
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{
+              t('admin.accounts.disableAutoTempUnschedulable')
+            }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.disableAutoTempUnschedulableDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="disable-auto-temp-unschedulable-toggle"
+            @click="disableAutoTempUnschedulable = !disableAutoTempUnschedulable"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              disableAutoTempUnschedulable ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                disableAutoTempUnschedulable ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
 
       <div
         v-if="account?.platform === 'openai'"
@@ -3449,6 +3478,7 @@ const grokClientToolCacheEnabled = ref(true)
 
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(false)
+const disableAutoTempUnschedulable = ref(false)
 const autoPause5hThreshold = ref<number | null>(null)
 const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
@@ -4015,6 +4045,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
+  disableAutoTempUnschedulable.value = newAccount.disable_auto_temp_unschedulable === true
   editVertexProjectId.value = ''
   editVertexClientEmail.value = ''
   editVertexLocation.value = 'us-central1'
@@ -5033,6 +5064,7 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
+    updatePayload.disable_auto_temp_unschedulable = disableAutoTempUnschedulable.value
     if (props.account.type === 'apikey') {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value

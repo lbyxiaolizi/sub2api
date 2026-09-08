@@ -491,6 +491,20 @@ func (_u *AccountUpdate) ClearTempUnschedulableReason() *AccountUpdate {
 	return _u
 }
 
+// SetDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field.
+func (_u *AccountUpdate) SetDisableAutoTempUnschedulable(v bool) *AccountUpdate {
+	_u.mutation.SetDisableAutoTempUnschedulable(v)
+	return _u
+}
+
+// SetNillableDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableDisableAutoTempUnschedulable(v *bool) *AccountUpdate {
+	if v != nil {
+		_u.SetDisableAutoTempUnschedulable(*v)
+	}
+	return _u
+}
+
 // SetSessionWindowStart sets the "session_window_start" field.
 func (_u *AccountUpdate) SetSessionWindowStart(v time.Time) *AccountUpdate {
 	_u.mutation.SetSessionWindowStart(v)
@@ -956,6 +970,9 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.TempUnschedulableReasonCleared() {
 		_spec.ClearField(account.FieldTempUnschedulableReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.DisableAutoTempUnschedulable(); ok {
+		_spec.SetField(account.FieldDisableAutoTempUnschedulable, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.SessionWindowStart(); ok {
 		_spec.SetField(account.FieldSessionWindowStart, field.TypeTime, value)
@@ -1691,6 +1708,20 @@ func (_u *AccountUpdateOne) ClearTempUnschedulableReason() *AccountUpdateOne {
 	return _u
 }
 
+// SetDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field.
+func (_u *AccountUpdateOne) SetDisableAutoTempUnschedulable(v bool) *AccountUpdateOne {
+	_u.mutation.SetDisableAutoTempUnschedulable(v)
+	return _u
+}
+
+// SetNillableDisableAutoTempUnschedulable sets the "disable_auto_temp_unschedulable" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableDisableAutoTempUnschedulable(v *bool) *AccountUpdateOne {
+	if v != nil {
+		_u.SetDisableAutoTempUnschedulable(*v)
+	}
+	return _u
+}
+
 // SetSessionWindowStart sets the "session_window_start" field.
 func (_u *AccountUpdateOne) SetSessionWindowStart(v time.Time) *AccountUpdateOne {
 	_u.mutation.SetSessionWindowStart(v)
@@ -2186,6 +2217,9 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.TempUnschedulableReasonCleared() {
 		_spec.ClearField(account.FieldTempUnschedulableReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.DisableAutoTempUnschedulable(); ok {
+		_spec.SetField(account.FieldDisableAutoTempUnschedulable, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.SessionWindowStart(); ok {
 		_spec.SetField(account.FieldSessionWindowStart, field.TypeTime, value)

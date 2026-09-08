@@ -180,6 +180,11 @@ func TempUnschedulableReason(v string) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldTempUnschedulableReason, v))
 }
 
+// DisableAutoTempUnschedulable applies equality check predicate on the "disable_auto_temp_unschedulable" field. It's identical to DisableAutoTempUnschedulableEQ.
+func DisableAutoTempUnschedulable(v bool) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldDisableAutoTempUnschedulable, v))
+}
+
 // SessionWindowStart applies equality check predicate on the "session_window_start" field. It's identical to SessionWindowStartEQ.
 func SessionWindowStart(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldSessionWindowStart, v))
@@ -1413,6 +1418,16 @@ func TempUnschedulableReasonEqualFold(v string) predicate.Account {
 // TempUnschedulableReasonContainsFold applies the ContainsFold predicate on the "temp_unschedulable_reason" field.
 func TempUnschedulableReasonContainsFold(v string) predicate.Account {
 	return predicate.Account(sql.FieldContainsFold(FieldTempUnschedulableReason, v))
+}
+
+// DisableAutoTempUnschedulableEQ applies the EQ predicate on the "disable_auto_temp_unschedulable" field.
+func DisableAutoTempUnschedulableEQ(v bool) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldDisableAutoTempUnschedulable, v))
+}
+
+// DisableAutoTempUnschedulableNEQ applies the NEQ predicate on the "disable_auto_temp_unschedulable" field.
+func DisableAutoTempUnschedulableNEQ(v bool) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldDisableAutoTempUnschedulable, v))
 }
 
 // SessionWindowStartEQ applies the EQ predicate on the "session_window_start" field.

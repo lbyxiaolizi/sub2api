@@ -74,6 +74,8 @@ type Account struct {
 	TempUnschedulableUntil *time.Time `json:"temp_unschedulable_until,omitempty"`
 	// TempUnschedulableReason holds the value of the "temp_unschedulable_reason" field.
 	TempUnschedulableReason *string `json:"temp_unschedulable_reason,omitempty"`
+	// Never auto-mark account as temporarily unschedulable.
+	DisableAutoTempUnschedulable bool `json:"disable_auto_temp_unschedulable,omitempty"`
 	// SessionWindowStart holds the value of the "session_window_start" field.
 	SessionWindowStart *time.Time `json:"session_window_start,omitempty"`
 	// SessionWindowEnd holds the value of the "session_window_end" field.
@@ -187,7 +189,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case account.FieldCredentials, account.FieldExtra:
 			values[i] = new([]byte)
-		case account.FieldAutoPauseOnExpired, account.FieldSchedulable:
+		case account.FieldAutoPauseOnExpired, account.FieldSchedulable, account.FieldDisableAutoTempUnschedulable:
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
@@ -397,6 +399,12 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.TempUnschedulableReason = new(string)
 				*_m.TempUnschedulableReason = value.String
+			}
+		case account.FieldDisableAutoTempUnschedulable:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field disable_auto_temp_unschedulable", values[i])
+			} else if value.Valid {
+				_m.DisableAutoTempUnschedulable = value.Bool
 			}
 		case account.FieldSessionWindowStart:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -611,6 +619,9 @@ func (_m *Account) String() string {
 		builder.WriteString("temp_unschedulable_reason=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	builder.WriteString("disable_auto_temp_unschedulable=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DisableAutoTempUnschedulable))
 	builder.WriteString(", ")
 	if v := _m.SessionWindowStart; v != nil {
 		builder.WriteString("session_window_start=")
