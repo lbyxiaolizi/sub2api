@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -141,6 +142,61 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 		normalized = stripped
 	}
 	return normalized
+}
+
+// normalizeBlankToolCallArguments 将 Responses input 中工具调用项的空白 arguments
+// 改写为 "{}"。某些模型（如 muse-spark）会产出 arguments:"" 的 function_call，
+// Codex 每轮把历史原样回放，Console 等严格上游以 400 `arguments` must be valid JSON
+// 拒绝整个请求——且此时模型根本没被调用。空字符串不携带任何信息，改写语义等价。
+// 仅处理空白字符串；其他非 JSON 内容保持原样，避免掩盖真实错误。
+// 任何解析/改写失败都原样返回（fail-open）。
+func normalizeBlankToolCallArguments(body []byte) []byte {
+	if len(body) == 0 || !bytes.Contains(body, []byte(`"arguments"`)) {
+		return body
+	}
+	var paths []string
+	collect := func(item gjson.Result, path string) {
+		if !isCodexToolCallItemType(strings.TrimSpace(item.Get("type").String())) {
+			return
+		}
+		if args := item.Get("arguments"); args.Type == gjson.String && strings.TrimSpace(args.String()) == "" {
+			paths = append(paths, path)
+		}
+	}
+	// Responses 协议：input 数组（或单个对象）中的工具调用项。
+	if input := gjson.GetBytes(body, "input"); input.IsArray() {
+		input.ForEach(func(key, item gjson.Result) bool {
+			collect(item, "input."+strconv.FormatInt(key.Int(), 10)+".arguments")
+			return true
+		})
+	} else if input.IsObject() {
+		collect(input, "input.arguments")
+	}
+	// Chat Completions 协议：messages[].tool_calls[].function.arguments。
+	if messages := gjson.GetBytes(body, "messages"); messages.IsArray() {
+		messages.ForEach(func(msgKey, msg gjson.Result) bool {
+			msg.Get("tool_calls").ForEach(func(tcKey, tc gjson.Result) bool {
+				if args := tc.Get("function.arguments"); args.Type == gjson.String && strings.TrimSpace(args.String()) == "" {
+					paths = append(paths, "messages."+strconv.FormatInt(msgKey.Int(), 10)+
+						".tool_calls."+strconv.FormatInt(tcKey.Int(), 10)+".function.arguments")
+				}
+				return true
+			})
+			return true
+		})
+	}
+	if len(paths) == 0 {
+		return body
+	}
+	out := body
+	for _, path := range paths {
+		next, err := sjson.SetBytes(out, path, "{}")
+		if err != nil {
+			return body
+		}
+		out = next
+	}
+	return out
 }
 
 func trimOpenAIEncryptedReasoningItems(reqBody map[string]any) bool {
