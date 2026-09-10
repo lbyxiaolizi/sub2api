@@ -580,19 +580,23 @@ type CreateProxyInput struct {
 	DisableKeepAlive bool
 }
 
+// UpdateProxyInput preserves omitted expiry/backup values; Clear flags explicitly
+// remove them. A nil ExpiryWarnDays preserves the current warning period.
 type UpdateProxyInput struct {
-	Name             string
-	Protocol         string
-	Host             string
-	Port             int
-	Username         string
-	Password         string
-	Status           string
-	ExpiresAt        *time.Time
-	FallbackMode     string
-	BackupProxyID    *int64
-	ExpiryWarnDays   int
-	ForceHTTP1       *bool
+	Name           string
+	Protocol       string
+	Host           string
+	Port           int
+	Username       string
+	Password       string
+	Status         string
+	ExpiresAt      *time.Time
+	ClearExpiresAt bool
+	FallbackMode   string
+	BackupProxyID  *int64
+	ClearBackupID  bool
+	ExpiryWarnDays *int
+	ForceHTTP1     *bool
 	DisableKeepAlive *bool
 }
 

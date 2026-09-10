@@ -172,11 +172,13 @@ func (h *ProxyHandler) ImportData(c *gin.Context) {
 					}
 				}
 				updateInput := &service.UpdateProxyInput{
-					Status:           normalizedStatus,
-					ExpiresAt:        existingExpiresAt,
-					FallbackMode:     existingFallbackMode,
-					BackupProxyID:    existingBackupProxyID,
-					ExpiryWarnDays:   item.ExpiryWarnDays,
+					Status:         normalizedStatus,
+					ExpiresAt:      existingExpiresAt,
+					ClearExpiresAt: existingExpiresAt == nil,
+					FallbackMode:   existingFallbackMode,
+					BackupProxyID:  existingBackupProxyID,
+					ClearBackupID:  existingBackupProxyID == nil,
+					ExpiryWarnDays: &item.ExpiryWarnDays,
 					ForceHTTP1:       boolPointer(item.ForceHTTP1),
 					DisableKeepAlive: boolPointer(item.DisableKeepAlive),
 					// 保留已存在代理的网络配置字段
@@ -259,11 +261,13 @@ func (h *ProxyHandler) ImportData(c *gin.Context) {
 		if normalizedStatus != "" && normalizedStatus != created.Status {
 			// 新建后同步 status 时，传入完整字段，避免零值覆盖刚创建的有效期/fallback 配置。
 			if _, err := h.adminService.UpdateProxy(ctx, created.ID, &service.UpdateProxyInput{
-				Status:           normalizedStatus,
-				ExpiresAt:        expiresAt,
-				FallbackMode:     fallbackMode,
-				BackupProxyID:    backupProxyID,
-				ExpiryWarnDays:   item.ExpiryWarnDays,
+				Status:         normalizedStatus,
+				ExpiresAt:      expiresAt,
+				ClearExpiresAt: expiresAt == nil,
+				FallbackMode:   fallbackMode,
+				BackupProxyID:  backupProxyID,
+				ClearBackupID:  backupProxyID == nil,
+				ExpiryWarnDays: &item.ExpiryWarnDays,
 				ForceHTTP1:       boolPointer(item.ForceHTTP1),
 				DisableKeepAlive: boolPointer(item.DisableKeepAlive),
 				Name:             created.Name,
