@@ -276,6 +276,7 @@ func TestResolve_KiroGPT56UsesChannelPricingBeforeDefaultOpenAIPricing(t *testin
 
 func TestResolve_KiroGPT56FallsBackToDefaultOpenAIPricingWhenNoChannelPrice(t *testing.T) {
 	r := newResolverWithPlatformChannel(t, PlatformKiro, nil)
+	r.billingService.initFallbackPricing()
 
 	resolved := r.Resolve(context.Background(), PricingInput{
 		Model:   "gpt-5.6-luna",

@@ -32,7 +32,6 @@ func (r *opsRepository) GetOpenAITokenStats(ctx context.Context, filter *service
 	}
 
 	join, where, baseArgs, next := buildUsageWhere(dashboardFilter, dashboardFilter.StartTime, dashboardFilter.EndTime, 1)
-	where += " AND ul.model LIKE 'gpt%'"
 
 	// Generation throughput excludes time spent waiting for the first token.
 	// Missing/invalid timing samples must not dilute the average with end-to-end rates.

@@ -12,6 +12,7 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -56,9 +57,10 @@ func TestEstimateImageTokensUsesDimensionsNotEncodedLength(t *testing.T) {
 	require.NoError(t, png.Encode(&flatPNG, flat))
 
 	noisy := image.NewRGBA(image.Rect(0, 0, 512, 512))
+	rng := rand.New(rand.NewPCG(1, 2))
 	for y := 0; y < 512; y++ {
 		for x := 0; x < 512; x++ {
-			noisy.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: uint8(x ^ y), A: 255})
+			noisy.SetRGBA(x, y, color.RGBA{R: uint8(rng.Uint32()), G: uint8(rng.Uint32()), B: uint8(rng.Uint32()), A: 255})
 		}
 	}
 	var noisyPNG bytes.Buffer

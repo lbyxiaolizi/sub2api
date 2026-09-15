@@ -12,7 +12,6 @@ const source = readFileSync(
 )
 
 function extractRegex(): RegExp {
-  const match = source.match(/const regex =\s*\n\s*(\/\^\(https\?[^;\n]+\/i)\n/)
   const match = source.match(/const regex =\s*\n?\s*(\/\^\(https\?[^;\n]+\/i)\n/)
   expect(match, 'parseProxyUrl regex not found in ProxiesView.vue').toBeTruthy()
   return new RegExp((match as RegExpMatchArray)[1].slice(1, -2), 'i')

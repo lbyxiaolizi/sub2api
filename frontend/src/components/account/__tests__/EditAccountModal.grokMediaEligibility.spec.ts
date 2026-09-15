@@ -60,7 +60,13 @@ function mountModal(value = account()) {
   return mount(EditAccountModal, {
     props: { show: true, account: value, proxies: [], groups: [] },
     global: { stubs: {
-      BaseDialog: BaseDialogStub, Select: true, Icon: true, ProxySelector: true,
+      BaseDialog: BaseDialogStub,
+      Select: {
+        props: ['modelValue', 'options', 'disabled'],
+        emits: ['update:modelValue'],
+        template: `<select :value="modelValue" :disabled="disabled" @change="$emit('update:modelValue', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option></select>`
+      },
+      Icon: true, ProxySelector: true,
       GroupSelector: true, ModelWhitelistSelector: true
     } }
   })

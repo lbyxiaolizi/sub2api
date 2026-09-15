@@ -187,6 +187,8 @@ describe('admin AccountsView select all filtered results', () => {
     await wrapper.get('[data-test="select-page"]').trigger('click')
     await wrapper.get('[data-test="refresh-token"]').trigger('click')
     await flushPromises()
+    wrapper.findAllComponents({ name: 'ConfirmDialog' }).find(dialog => dialog.props('show'))!.vm.$emit('confirm')
+    await flushPromises()
 
     expect(batchRefresh).toHaveBeenCalledWith([1, 2, 3])
     expect(listAccounts).toHaveBeenCalledTimes(2)
@@ -196,6 +198,8 @@ describe('admin AccountsView select all filtered results', () => {
     if (result.failed > 0) {
       expect(showError).toHaveBeenCalledWith('admin.accounts.bulkActions.partialSuccess')
       await wrapper.get('[data-test="refresh-token"]').trigger('click')
+      await flushPromises()
+      wrapper.findAllComponents({ name: 'ConfirmDialog' }).find(dialog => dialog.props('show'))!.vm.$emit('confirm')
       await flushPromises()
       expect(batchRefresh).toHaveBeenLastCalledWith(expectedIds)
     }

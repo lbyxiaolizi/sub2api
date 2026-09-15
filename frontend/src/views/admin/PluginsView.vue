@@ -329,11 +329,12 @@
 
       <TotpStepUpDialog :controller="pluginStepUp" />
     </div>
+    <ConfirmDialog :show="confirmation.show" :title="t('common.confirm')" :message="confirmation.message" @confirm="settleConfirmation(true)" @cancel="settleConfirmation(false)" />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   adminAPI,
@@ -342,6 +343,7 @@ import {
 } from "@/api/admin";
 import { useAppStore } from "@/stores";
 import AppLayout from "@/components/layout/AppLayout.vue";
+import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import BaseDialog from "@/components/common/BaseDialog.vue";
 import Icon from "@/components/icons/Icon.vue";
 import TotpStepUpDialog from "@/components/auth/TotpStepUpDialog.vue";
@@ -457,7 +459,7 @@ function setRollout(id: number, event: Event): void {
 async function enablePlugin(plugin: PluginInstallation): Promise<void> {
   let acceptUntested = false;
   if (!plugin.compatibility.tested) {
-    acceptUntested = window.confirm(t("admin.plugins.confirmUntested"));
+    acceptUntested = await askConfirmation(t("admin.plugins.confirmUntested"));
     if (!acceptUntested) return;
   }
   busyID.value = plugin.id;
@@ -479,7 +481,7 @@ async function enablePlugin(plugin: PluginInstallation): Promise<void> {
 }
 
 async function disablePlugin(plugin: PluginInstallation): Promise<void> {
-  if (!window.confirm(t("admin.plugins.confirmDisable"))) return;
+  if (!(await askConfirmation(t("admin.plugins.confirmDisable")))) return;
   busyID.value = plugin.id;
   try {
     await pluginStepUp.run(() => adminAPI.plugins.disable(plugin.id));
@@ -493,7 +495,7 @@ async function disablePlugin(plugin: PluginInstallation): Promise<void> {
 }
 
 async function uninstallPlugin(plugin: PluginInstallation): Promise<void> {
-  if (!window.confirm(t("admin.plugins.confirmUninstall"))) return;
+  if (!(await askConfirmation(t("admin.plugins.confirmUninstall")))) return;
   busyID.value = plugin.id;
   try {
     await pluginStepUp.run(() => adminAPI.plugins.remove(plugin.id));
@@ -704,12 +706,28 @@ function compatibilityClass(
   return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
 }
 
+const confirmation = reactive({ show: false, message: '' });
+let confirmationResolve: ((value: boolean) => void) | null = null;
+function settleConfirmation(value: boolean) {
+  confirmation.show = false;
+  const resolve = confirmationResolve;
+  confirmationResolve = null;
+  resolve?.(value);
+}
+function askConfirmation(message: string): Promise<boolean> {
+  settleConfirmation(false);
+  confirmation.message = message;
+  confirmation.show = true;
+  return new Promise(resolve => { confirmationResolve = resolve; });
+}
+
 onMounted(() => {
   window.addEventListener("message", handleBridgeMessage);
   void loadPlugins();
 });
 
 onBeforeUnmount(() => {
+  settleConfirmation(false);
   window.removeEventListener("message", handleBridgeMessage);
   clearPendingBridgeRequests();
 });
