@@ -311,4 +311,5 @@ type OpsWindowStats struct {
 	SuccessCount    int64 `json:"success_count"`
 	ErrorCountTotal int64 `json:"error_count_total"`
 	TokenConsumed   int64 `json:"token_consumed"`
+	OutputTokens    int64 `json:"output_tokens"`
 }

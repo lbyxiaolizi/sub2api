@@ -34,6 +34,8 @@ func (r *opsRepository) GetOpenAITokenStats(ctx context.Context, filter *service
 	join, where, baseArgs, next := buildUsageWhere(dashboardFilter, dashboardFilter.StartTime, dashboardFilter.EndTime, 1)
 	where += " AND ul.model LIKE 'gpt%'"
 
+	// Generation throughput excludes time spent waiting for the first token.
+	// Missing/invalid timing samples must not dilute the average with end-to-end rates.
 	baseCTE := `
 WITH stats AS (
   SELECT
@@ -42,8 +44,10 @@ WITH stats AS (
     ROUND(
       AVG(
         CASE
-          WHEN ul.duration_ms > 0 AND ul.output_tokens > 0
-          THEN ul.output_tokens * 1000.0 / ul.duration_ms
+          WHEN ul.first_token_ms >= 0
+            AND ul.duration_ms > ul.first_token_ms
+            AND ul.output_tokens > 0
+          THEN ul.output_tokens * 1000.0 / (ul.duration_ms - ul.first_token_ms)
         END
       )::numeric,
       2

@@ -265,7 +265,7 @@ func (c *opsWSQPSCache) refresh(parentCtx context.Context) {
 	if c.requestCountWindow > 0 {
 		seconds := c.requestCountWindow.Seconds()
 		qps = roundTo1DP(float64(requestCount) / seconds)
-		tps = roundTo1DP(float64(stats.TokenConsumed) / seconds)
+		tps = roundTo1DP(float64(stats.OutputTokens) / seconds)
 	}
 
 	payload := gin.H{

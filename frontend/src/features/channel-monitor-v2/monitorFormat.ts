@@ -43,7 +43,7 @@ export function formatMonitorThroughput(value: number | null | undefined): strin
 }
 
 /**
- * Backend stores tokens-per-minute as `tpm`. Convert to tokens-per-second for display.
+ * Backend stores output tokens-per-minute as `tpm`. Convert to tokens-per-second for display.
  */
 export function tokensPerSecondFromTpm(tpm: number | null | undefined): number {
   if (tpm == null || Number.isNaN(Number(tpm))) return 0

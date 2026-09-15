@@ -274,7 +274,7 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 	active, idle := c.dbPoolStats()
 	redisTotal, redisIdle, redisStatsOK := c.redisPoolStats()
 
-	successCount, tokenConsumed, err := c.queryUsageCounts(ctx, windowStart, windowEnd)
+	successCount, tokenConsumed, outputTokens, err := c.queryUsageCounts(ctx, windowStart, windowEnd)
 	if err != nil {
 		return fmt.Errorf("query usage counts: %w", err)
 	}
@@ -300,7 +300,7 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 	}
 	requestTotal := successCount + errorTotal
 	qps := float64(requestTotal) / windowSeconds
-	tps := float64(tokenConsumed) / windowSeconds
+	tps := float64(outputTokens) / windowSeconds
 
 	goroutines := runtime.NumGoroutine()
 	concurrencyQueueDepth := c.collectConcurrencyQueueDepth(ctx)
@@ -443,22 +443,23 @@ type opsCollectedPercentiles struct {
 	max *int
 }
 
-func (c *OpsMetricsCollector) queryUsageCounts(ctx context.Context, start, end time.Time) (successCount int64, tokenConsumed int64, err error) {
+func (c *OpsMetricsCollector) queryUsageCounts(ctx context.Context, start, end time.Time) (successCount int64, tokenConsumed int64, outputTokens int64, err error) {
 	q := `
 SELECT
   COALESCE(COUNT(*), 0) AS success_count,
-  COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_consumed
+  COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_consumed,
+  COALESCE(SUM(output_tokens), 0) AS output_tokens
 FROM usage_logs
 WHERE created_at >= $1 AND created_at < $2`
 
 	var tokens sql.NullInt64
-	if err := c.db.QueryRowContext(ctx, q, start, end).Scan(&successCount, &tokens); err != nil {
-		return 0, 0, err
+	if err := c.db.QueryRowContext(ctx, q, start, end).Scan(&successCount, &tokens, &outputTokens); err != nil {
+		return 0, 0, 0, err
 	}
 	if tokens.Valid {
 		tokenConsumed = tokens.Int64
 	}
-	return successCount, tokenConsumed, nil
+	return successCount, tokenConsumed, outputTokens, nil
 }
 
 func (c *OpsMetricsCollector) queryUsageLatency(ctx context.Context, start, end time.Time) (duration opsCollectedPercentiles, ttft opsCollectedPercentiles, err error) {

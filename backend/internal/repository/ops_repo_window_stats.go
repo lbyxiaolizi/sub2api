@@ -29,7 +29,7 @@ func (r *opsRepository) GetWindowStats(ctx context.Context, filter *service.OpsD
 		return nil, fmt.Errorf("window too large")
 	}
 
-	successCount, tokenConsumed, err := r.queryUsageCounts(ctx, filter, start, end)
+	successCount, tokenConsumed, outputTokens, err := r.queryUsageCounts(ctx, filter, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -46,5 +46,6 @@ func (r *opsRepository) GetWindowStats(ctx context.Context, filter *service.OpsD
 		SuccessCount:    successCount,
 		ErrorCountTotal: errorTotal,
 		TokenConsumed:   tokenConsumed,
+		OutputTokens:    outputTokens,
 	}, nil
 }

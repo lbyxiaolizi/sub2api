@@ -36,7 +36,7 @@ export default {
     metrics: {
       rpm: 'RPM',
       tpm: 'TPM',
-      tps: '每秒 Token',
+      tps: '输出 Token/秒',
       rpmDetail: '每分钟请求数',
       tpmDetail: '每分钟 Token 数',
       tpsDetail: '由 TPM ÷ 60 换算',

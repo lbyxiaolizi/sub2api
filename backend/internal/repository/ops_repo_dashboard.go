@@ -52,7 +52,7 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 	end := filter.EndTime.UTC()
 	degraded := false
 
-	successCount, tokenConsumed, err := r.queryUsageCounts(ctx, filter, start, end)
+	successCount, tokenConsumed, outputTokens, err := r.queryUsageCounts(ctx, filter, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 	}
 
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
-	tpsAvg := roundTo1DP(float64(tokenConsumed) / windowSeconds)
+	tpsAvg := roundTo1DP(float64(outputTokens) / windowSeconds)
 	if degraded {
 		if qpsCurrent <= 0 {
 			qpsCurrent = qpsAvg
@@ -290,8 +290,15 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		}
 	}
 
+	// Historical hourly aggregates contain total consumption, not output tokens.
+	// Read output directly so old aggregates cannot inflate TPS after an upgrade.
+	outputTokens, err := r.queryOutputTokens(ctx, filter, start, end)
+	if err != nil {
+		return nil, err
+	}
+
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
-	tpsAvg := roundTo1DP(float64(tokenConsumed) / windowSeconds)
+	tpsAvg := roundTo1DP(float64(outputTokens) / windowSeconds)
 	if degraded {
 		if qpsCurrent <= 0 {
 			qpsCurrent = qpsAvg
@@ -638,7 +645,7 @@ func aggregateHourlyRows(rows []opsHourlyMetricsRow) opsDashboardPartial {
 }
 
 func (r *opsRepository) queryRawPartial(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (*opsDashboardPartial, error) {
-	successCount, tokenConsumed, err := r.queryUsageCounts(ctx, filter, start, end)
+	successCount, tokenConsumed, _, err := r.queryUsageCounts(ctx, filter, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -788,25 +795,26 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
-func (r *opsRepository) queryUsageCounts(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (successCount int64, tokenConsumed int64, err error) {
+func (r *opsRepository) queryUsageCounts(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (successCount int64, tokenConsumed int64, outputTokens int64, err error) {
 	join, where, args, _ := buildUsageWhere(filter, start, end, 1)
 
 	q := `
 SELECT
   COALESCE(COUNT(*), 0) AS success_count,
-  COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_consumed
+  COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_consumed,
+  COALESCE(SUM(output_tokens), 0) AS output_tokens
 FROM usage_logs ul
 ` + join + `
 ` + where
 
 	var tokens sql.NullInt64
-	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&successCount, &tokens); err != nil {
-		return 0, 0, err
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&successCount, &tokens, &outputTokens); err != nil {
+		return 0, 0, 0, err
 	}
 	if tokens.Valid {
 		tokenConsumed = tokens.Int64
 	}
-	return successCount, tokenConsumed, nil
+	return successCount, tokenConsumed, outputTokens, nil
 }
 
 func (r *opsRepository) queryUsageLatency(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (duration service.OpsPercentiles, ttft service.OpsPercentiles, ttftSampleCount int64, err error) {
@@ -905,7 +913,7 @@ FROM ops_error_logs
 func (r *opsRepository) queryCurrentRates(ctx context.Context, filter *service.OpsDashboardFilter, end time.Time) (qpsCurrent float64, tpsCurrent float64, err error) {
 	windowStart := end.Add(-1 * time.Minute)
 
-	successCount1m, token1m, err := r.queryUsageCounts(ctx, filter, windowStart, end)
+	successCount1m, _, token1m, err := r.queryUsageCounts(ctx, filter, windowStart, end)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -928,7 +936,7 @@ WITH usage_buckets AS (
   SELECT
     date_trunc('minute', ul.created_at) AS bucket,
     COUNT(*) AS req_cnt,
-    COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_cnt
+    COALESCE(SUM(output_tokens), 0) AS token_cnt
   FROM usage_logs ul
   ` + usageJoin + `
   ` + usageWhere + `
@@ -1066,4 +1074,12 @@ func roundTo1DP(v float64) float64 {
 
 func roundTo4DP(v float64) float64 {
 	return math.Round(v*10000) / 10000
+}
+
+// queryOutputTokens keeps output throughput independent of billing token totals.
+func (r *opsRepository) queryOutputTokens(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (int64, error) {
+	join, where, args, _ := buildUsageWhere(filter, start, end, 1)
+	var output int64
+	err := r.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(ul.output_tokens), 0) FROM usage_logs ul `+join+` `+where, args...).Scan(&output)
+	return output, err
 }

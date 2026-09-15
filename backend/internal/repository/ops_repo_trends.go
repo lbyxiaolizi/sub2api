@@ -42,7 +42,8 @@ func (r *opsRepository) GetThroughputTrend(ctx context.Context, filter *service.
 WITH usage_buckets AS (
   SELECT ` + usageBucketExpr + ` AS bucket,
          COUNT(*) AS success_count,
-         COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_consumed
+         COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_consumed,
+         COALESCE(SUM(output_tokens), 0) AS output_tokens
   FROM usage_logs ul
   ` + usageJoin + `
   ` + usageWhere + `
@@ -76,15 +77,16 @@ combined AS (
     SUM(success_count) AS success_count,
     SUM(error_count) AS error_count,
     SUM(token_consumed) AS token_consumed,
-    SUM(switch_count) AS switch_count
+    SUM(switch_count) AS switch_count,
+    SUM(output_tokens) AS output_tokens
   FROM (
-    SELECT bucket, success_count, 0 AS error_count, token_consumed, 0 AS switch_count
+    SELECT bucket, success_count, 0 AS error_count, token_consumed, 0 AS switch_count, output_tokens
     FROM usage_buckets
     UNION ALL
-    SELECT bucket, 0, error_count, 0, 0
+    SELECT bucket, 0, error_count, 0, 0, 0
     FROM error_buckets
     UNION ALL
-    SELECT bucket, 0, 0, 0, switch_count
+    SELECT bucket, 0, 0, 0, switch_count, 0
     FROM switch_buckets
   ) t
   GROUP BY bucket
@@ -93,7 +95,8 @@ SELECT
   bucket,
   (success_count + error_count) AS request_count,
   token_consumed,
-  switch_count
+  switch_count,
+  output_tokens
 FROM combined
 ORDER BY bucket ASC`
 
@@ -111,7 +114,8 @@ ORDER BY bucket ASC`
 		var requests int64
 		var tokens sql.NullInt64
 		var switches sql.NullInt64
-		if err := rows.Scan(&bucket, &requests, &tokens, &switches); err != nil {
+		var outputTokens int64
+		if err := rows.Scan(&bucket, &requests, &tokens, &switches, &outputTokens); err != nil {
 			return nil, err
 		}
 		tokenConsumed := int64(0)
@@ -128,7 +132,7 @@ ORDER BY bucket ASC`
 			denom = 60
 		}
 		qps := roundTo1DP(float64(requests) / denom)
-		tps := roundTo1DP(float64(tokenConsumed) / denom)
+		tps := roundTo1DP(float64(outputTokens) / denom)
 
 		points = append(points, &service.OpsThroughputTrendPoint{
 			BucketStart:   bucket.UTC(),

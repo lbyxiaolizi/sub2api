@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"regexp"
 	"testing"
 	"time"
 
@@ -28,7 +29,13 @@ func TestOpsRepositoryGetOpenAITokenStats_PaginationMode(t *testing.T) {
 		PageSize:  10,
 	}
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM stats`).
+	// Lock the database-side calculation too: mocked result rows alone would
+	// accept a regression to output_tokens / total request duration.
+	generationRateSQL := regexp.QuoteMeta(`WHEN ul.first_token_ms >= 0
+            AND ul.duration_ms > ul.first_token_ms
+            AND ul.output_tokens > 0
+          THEN ul.output_tokens * 1000.0 / (ul.duration_ms - ul.first_token_ms)`)
+	mock.ExpectQuery(generationRateSQL+`(?s).*SELECT COUNT\(\*\) FROM stats`).
 		WithArgs(start, end, groupID, "openai").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(3)))
 
@@ -44,7 +51,7 @@ func TestOpsRepositoryGetOpenAITokenStats_PaginationMode(t *testing.T) {
 		AddRow("gpt-4o-mini", int64(20), 21.56, 120.34, int64(3000), int64(850), int64(18)).
 		AddRow("gpt-4.1", int64(20), 10.2, 240.0, int64(2500), int64(900), int64(20))
 
-	mock.ExpectQuery(`ORDER BY request_count DESC, model ASC\s+LIMIT \$5 OFFSET \$6`).
+	mock.ExpectQuery(generationRateSQL+`(?s).*ORDER BY request_count DESC, model ASC\s+LIMIT \$5 OFFSET \$6`).
 		WithArgs(start, end, groupID, "openai", 10, 10).
 		WillReturnRows(rows)
 

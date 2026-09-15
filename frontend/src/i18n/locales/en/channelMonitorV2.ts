@@ -36,7 +36,7 @@ export default {
     metrics: {
       rpm: 'RPM',
       tpm: 'TPM',
-      tps: 'Tokens/s',
+      tps: 'Output tokens/s',
       rpmDetail: 'Requests per minute',
       tpmDetail: 'Tokens per minute',
       tpsDetail: 'Derived as TPM ÷ 60',

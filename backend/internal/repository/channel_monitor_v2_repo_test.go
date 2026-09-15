@@ -467,3 +467,17 @@ func TestChannelMonitorV2CatalogFilterClearsMultiSelectDimensions(t *testing.T) 
 	require.Equal(t, []int64{3, 4}, configuredChannelMonitorV2GroupIDs(catalog, cfg))
 	require.Equal(t, []int64{3}, configuredChannelMonitorV2GroupIDs(filter, cfg))
 }
+
+func TestChannelMonitorV2ThroughputExcludesInputAndCache(t *testing.T) {
+	acc := newMetricAccumulator()
+	acc.success = 2
+	acc.input, acc.output, acc.cacheCreation, acc.cacheRead = 100000, 600, 200000, 300000
+	for _, admin := range []bool{false, true} {
+		metric := acc.metric(2, admin)
+		require.Equal(t, float64(300), metric.TPM) // 600 output tokens / two minutes
+		require.Equal(t, int64(600600), metric.TokenCount)
+		require.Equal(t, float64(1), metric.RPM)
+	}
+	acc.output = 0
+	require.Zero(t, acc.metric(2, false).TPM)
+}

@@ -42,7 +42,7 @@ WITH usage_buckets AS (
   SELECT
     date_trunc('minute', ul.created_at) AS bucket,
     COALESCE(COUNT(*), 0) AS success_count,
-    COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS token_sum
+    COALESCE(SUM(output_tokens), 0) AS token_sum
   FROM usage_logs ul
   ` + usageJoin + `
   ` + usageWhere + `
@@ -78,13 +78,13 @@ FROM combined`
 	args := append(usageArgs, errorArgs...)
 	var successCount int64
 	var errorTotal int64
-	var tokenConsumed int64
+	var outputTokens int64
 	var peakRequestsPerMin int64
 	var peakTokensPerMin int64
 	if err := r.db.QueryRowContext(ctx, q, args...).Scan(
 		&successCount,
 		&errorTotal,
-		&tokenConsumed,
+		&outputTokens,
 		&peakRequestsPerMin,
 		&peakTokensPerMin,
 	); err != nil {
@@ -98,7 +98,7 @@ FROM combined`
 
 	requestCountTotal := successCount + errorTotal
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
-	tpsAvg := roundTo1DP(float64(tokenConsumed) / windowSeconds)
+	tpsAvg := roundTo1DP(float64(outputTokens) / windowSeconds)
 
 	// Keep "current" consistent with the dashboard overview semantics: last 1 minute.
 	// This remains "within the selected window" since end=start+window.
