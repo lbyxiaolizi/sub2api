@@ -119,6 +119,22 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(responseBody)))
 	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(responseBody)))
 	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.param").String()))
+	// Some Responses providers report caller-bound reasoning with only an
+	// invalid_request_error message, rather than invalid_encrypted_content.
+	// Drop the rejected opaque reasoning item (including its provider-specific
+	// summary/id) while retaining the visible conversation and tool history.
+	// Both normal and passthrough forwarding use this bounded retry path.
+	if strings.Contains(message, "reasoning") &&
+		strings.Contains(message, "encrypted_content") &&
+		strings.Contains(message, "was not issued to this caller") {
+		retryBody, changed, err := SanitizeOpenAICrossModeFailoverReasoning(body)
+		if err != nil {
+			return nil, "", false, fmt.Errorf("remove caller-bound reasoning: %w", err)
+		}
+		if changed {
+			return retryBody, "reasoning encrypted_content caller mismatch", true, nil
+		}
+	}
 	if code == "invalid_function_parameters" &&
 		openAIResponsesToolParametersParamPattern.MatchString(param) &&
 		openAIResponsesMissingSchemaTypePattern.MatchString(message) {
