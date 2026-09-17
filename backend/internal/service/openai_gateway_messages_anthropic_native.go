@@ -211,7 +211,7 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
 	payloads := append([][]byte{body}, sessionBodies...)
-	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, payloads...)
+	applyOpenCodeUpstreamIdentity(c, account, targetURL, req.Header, payloads...)
 
 	return req, body, nil
 }
