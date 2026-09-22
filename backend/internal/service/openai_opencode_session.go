@@ -60,14 +60,13 @@ func openCodeInboundBodies(c *gin.Context) [][]byte {
 	return [][]byte{body}
 }
 
-// applyOpenCodeUpstreamIdentity stamps the OpenCode client identity on outbound
-// inference requests to opencode.ai: the pinned opencode/<semver> User-Agent and
-// a ses_<26 base62> conversation id in x-opencode-session. The Zen free tier
-// rejects any request whose UA is not an official client UA and whose session
-// header is missing or malformed (403 FreeTierError); the Go gateway requires the
-// session value to be present (MissingSessionID, 2026-09-05). Both checks run
-// before the model is invoked, so relayed clients (Codex / Claude Code / curl)
-// must never carry their own UA or opaque session string upstream.
+// applyOpenCodeUpstreamIdentity stamps a ses_<26 base62> conversation id in
+// x-opencode-session on outbound inference requests to opencode.ai. The Zen free
+// tier rejects requests whose session header is missing or malformed (403
+// FreeTierError); the Go gateway requires the session value to be present
+// (MissingSessionID, 2026-09-05). The pinned User-Agent is stamped separately by
+// applyOpenCodeUpstreamUserAgent, which runs BEFORE Account.ApplyHeaderOverrides
+// so an explicit account-level user-agent override keeps the final say.
 //
 // The session id is resolved with caller headers first, then the documented body
 // session fields (OpenAI prompt_cache_key / Anthropic metadata.user_id), then any
@@ -90,9 +89,6 @@ func applyOpenCodeUpstreamIdentity(c *gin.Context, account *Account, targetURL s
 		}
 	}
 	headers.Set(openCodeSessionHeader, normalizeOpenCodeSessionID(sessionID))
-	if isOfficialOpenCodeHost(targetURL) {
-		headers.Set("User-Agent", openCodeUpstreamUserAgent)
-	}
 }
 
 func shouldSendOpenCodeSessionHeader(account *Account, targetURL string) bool {
@@ -149,6 +145,46 @@ func isOfficialOpenCodeHost(targetURL string) bool {
 		return false
 	}
 	return strings.EqualFold(parsed.Scheme, "https") && strings.EqualFold(parsed.Hostname(), "opencode.ai")
+}
+
+func isOfficialCommandCodeHost(targetURL string) bool {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, "https") && strings.EqualFold(parsed.Hostname(), "api.commandcode.ai")
+}
+
+// applyOpenCodeUpstreamUserAgent 将发往官方 OpenCode / Command Code 上游的出站
+// User-Agent 收敛为规范客户端身份，覆盖客户端透传值与平台默认 UA。判定规则与
+// x-opencode-session 同源：opencode 平台账号，或（任意平台账号）目标为官方主机。
+// 必须先于 Account.ApplyHeaderOverrides 调用——账号 header_overrides 中显式
+// 配置的 user-agent 仍拥有最终决定权。
+func applyOpenCodeUpstreamUserAgent(account *Account, targetURL string, headers http.Header) {
+	if headers == nil {
+		return
+	}
+
+	userAgent := ""
+	switch {
+	case isOfficialCommandCodeHost(targetURL):
+		userAgent = CodexCanonicalUserAgent()
+	case account != nil && account.IsOpenCodeGo(), isOfficialOpenCodeHost(targetURL):
+		userAgent = openCodeUpstreamUserAgent
+	default:
+		return
+	}
+	if userAgent == "" {
+		return
+	}
+
+	// 先删任意大小写变体再写入：透传链路与覆写直写 map 可能残留非 canonical 键。
+	for key := range headers {
+		if strings.EqualFold(key, "User-Agent") {
+			delete(headers, key)
+		}
+	}
+	headers.Set("User-Agent", userAgent)
 }
 
 func resolveOpenCodeSessionID(c *gin.Context, headers http.Header, bodies ...[]byte) string {
