@@ -66,7 +66,9 @@ func openCodeInboundBodies(c *gin.Context) [][]byte {
 // FreeTierError); the Go gateway requires the session value to be present
 // (MissingSessionID, 2026-09-05). The pinned User-Agent is stamped separately by
 // applyOpenCodeUpstreamUserAgent, which runs BEFORE Account.ApplyHeaderOverrides
-// so an explicit account-level user-agent override keeps the final say.
+// so an explicit account-level user-agent override keeps the final say — except a
+// stale opencode/<semver> override, which upgradeStaleOpenCodeUserAgent lifts to
+// the pinned version on opencode.ai (older clients get 426 UpgradeRequired).
 //
 // The session id is resolved with caller headers first, then the documented body
 // session fields (OpenAI prompt_cache_key / Anthropic metadata.user_id), then any
@@ -79,6 +81,10 @@ func applyOpenCodeUpstreamIdentity(c *gin.Context, account *Account, targetURL s
 	}
 	if !shouldSendOpenCodeSessionHeader(account, targetURL) {
 		return
+	}
+
+	if isOfficialOpenCodeHost(targetURL) {
+		upgradeStaleOpenCodeUserAgent(headers)
 	}
 
 	payloads := append(openCodeInboundBodies(c), bodies...)
@@ -185,6 +191,36 @@ func applyOpenCodeUpstreamUserAgent(account *Account, targetURL string, headers 
 		}
 	}
 	headers.Set("User-Agent", userAgent)
+}
+
+// upgradeStaleOpenCodeUserAgent 把账号 header_overrides 写入的过期 OpenCode 客户端
+// UA（opencode/<semver>，低于 openCodeUpstreamUserAgent）升级为钉死版本：该覆写的
+// 意图就是冒充 OpenCode 客户端，而免费额度对低于最低版本的客户端一律 426
+// UpgradeRequired（2026-09-24 实测最低 1.18.0），保留旧版本号只会让请求必然失败。
+// 非 opencode/ 前缀的自定义 UA 与不低于钉死版本的值仍保持最终决定权。
+func upgradeStaleOpenCodeUserAgent(headers http.Header) {
+	// 覆写直写 map 可能留下非 canonical 键，按任意大小写查找。
+	userAgent := ""
+	for key, values := range headers {
+		if strings.EqualFold(key, "User-Agent") && len(values) > 0 {
+			userAgent = values[0]
+		}
+	}
+	version, ok := strings.CutPrefix(userAgent, "opencode/")
+	if !ok {
+		return
+	}
+	version, _, _ = strings.Cut(version, " ")
+	pinned := strings.TrimPrefix(openCodeUpstreamUserAgent, "opencode/")
+	if CompareVersions(version, pinned) >= 0 {
+		return
+	}
+	for key := range headers {
+		if strings.EqualFold(key, "User-Agent") {
+			delete(headers, key)
+		}
+	}
+	headers.Set("User-Agent", openCodeUpstreamUserAgent)
 }
 
 func resolveOpenCodeSessionID(c *gin.Context, headers http.Header, bodies ...[]byte) string {

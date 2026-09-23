@@ -243,3 +243,55 @@ func TestBuildUpstreamRequestShapesZenResponses(t *testing.T) {
 	require.True(t, gjson.GetBytes(body, "stream").Bool())
 	require.Equal(t, []string{"bash", "read"}, openCodeZenToolNames(body, openCodeZenEndpointResponses))
 }
+
+func TestUpgradeStaleOpenCodeUserAgent(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"opencode/1.4.3", openCodeUpstreamUserAgent},
+		{"opencode/1.17.9 ai-sdk/provider-utils/4.0.23", openCodeUpstreamUserAgent},
+		{"opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14", "opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"},
+		{openCodeUpstreamUserAgent, openCodeUpstreamUserAgent},
+		{"custom-relay-agent/2.0", "custom-relay-agent/2.0"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		headers := make(http.Header)
+		if tt.in != "" {
+			headers["user-agent"] = []string{tt.in}
+		}
+		upgradeStaleOpenCodeUserAgent(headers)
+		got := ""
+		for key, values := range headers {
+			if strings.EqualFold(key, "User-Agent") {
+				got = values[0]
+			}
+		}
+		require.Equal(t, tt.want, got, tt.in)
+		if tt.want != "" {
+			require.Len(t, headers, 1, "不得残留重复的 UA 键")
+		}
+	}
+}
+
+func TestSendCCUpstreamRequestUpgradesStaleOpenCodeUserAgentOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openCodeZenSSEHTTPUpstream{}
+	svc := openCodeSessionTestService()
+	svc.httpUpstream = upstream
+	account := openCodeSessionTestAccount("https://opencode.ai/zen/v1")
+	account.Credentials[credKeyHeaderOverrides] = map[string]any{
+		"user-agent":         "opencode/1.4.3",
+		"x-opencode-session": "cliproxy-opencode-go-session",
+	}
+	c := newOpenCodeSessionTestContext(t, "")
+
+	resp, err := svc.sendCCUpstreamRequest(
+		context.Background(), c, account,
+		"https://opencode.ai/zen/v1/chat/completions",
+		[]byte(`{"model":"big-pickle","messages":[{"role":"user","content":"hi"}]}`),
+		true, "token", "", "",
+	)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, openCodeUpstreamUserAgent, upstream.request.Header.Get("User-Agent"))
+	requireOpenCodeClientSessionID(t, upstream.request.Header)
+}
