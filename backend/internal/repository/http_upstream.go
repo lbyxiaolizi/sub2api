@@ -1403,21 +1403,21 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		proxyTransportOptions(proxyURL).ApplyToHTTPTransport(transport)
 	} else {
 		switch protocolMode {
-	case upstreamProtocolModeLongStreamH2, upstreamProtocolModeOpenAIH2:
-		transport.ForceAttemptHTTP2 = true
-		// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
-		// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
-		if _, err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {
-			return nil, err
+		case upstreamProtocolModeLongStreamH2, upstreamProtocolModeOpenAIH2:
+			transport.ForceAttemptHTTP2 = true
+			// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
+			// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
+			if _, err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {
+				return nil, err
+			}
+		case upstreamProtocolModeOpenAIH1:
+			transport.ForceAttemptHTTP2 = false
+			transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+		case upstreamProtocolModeOpenAIH1Fallback:
+			// 显式禁用 HTTP/2，确保代理不兼容场景回退到 HTTP/1.1。
+			transport.ForceAttemptHTTP2 = false
+			transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 		}
-	case upstreamProtocolModeOpenAIH1:
-		transport.ForceAttemptHTTP2 = false
-		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
-	case upstreamProtocolModeOpenAIH1Fallback:
-		// 显式禁用 HTTP/2，确保代理不兼容场景回退到 HTTP/1.1。
-		transport.ForceAttemptHTTP2 = false
-		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
-	}
 	}
 	if usesPerRequestProxyConnection(proxyURL) {
 		transport.DisableKeepAlives = true
@@ -1687,7 +1687,7 @@ func proxyTransportOptions(proxyURL *url.URL) proxyurl.TransportOptions {
 }
 
 // usesPerRequestProxyConnection 报告代理端口是否配置为每请求新建连接
-//（GATEWAY_UPSTREAM_PER_REQUEST_PROXY_PORT），用于每请求新鲜出口 IP。
+// （GATEWAY_UPSTREAM_PER_REQUEST_PROXY_PORT），用于每请求新鲜出口 IP。
 func usesPerRequestProxyConnection(proxyURL *url.URL) bool {
 	port := strings.TrimSpace(os.Getenv(upstreamPerRequestProxyPortEnv))
 	return port != "" && proxyURL != nil && proxyURL.Port() == port

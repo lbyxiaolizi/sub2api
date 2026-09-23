@@ -43,19 +43,19 @@ type CreateProxyRequest struct {
 
 // UpdateProxyRequest represents update proxy request
 type UpdateProxyRequest struct {
-	Name           string                 `json:"name"`
-	Protocol       string                 `json:"protocol" binding:"omitempty,oneof=http https socks5 socks5h"`
-	Host           string                 `json:"host"`
-	Port           int                    `json:"port" binding:"omitempty,min=1,max=65535"`
-	Username       *string                `json:"username"`
-	Password       *string                `json:"password"`
-	Status         string                 `json:"status" binding:"omitempty,oneof=active inactive"`
-	ExpiresAt      dto.NullableInt64Field `json:"expires_at"`
-	FallbackMode   string                 `json:"fallback_mode" binding:"omitempty,oneof=none proxy direct"`
-	BackupProxyID  dto.NullableInt64Field `json:"backup_proxy_id"`
-	ExpiryWarnDays *int                   `json:"expiry_warn_days" binding:"omitempty,min=0"`
-	ForceHTTP1       *bool  `json:"force_http1"`
-	DisableKeepAlive *bool  `json:"disable_keep_alive"`
+	Name             string                 `json:"name"`
+	Protocol         string                 `json:"protocol" binding:"omitempty,oneof=http https socks5 socks5h"`
+	Host             string                 `json:"host"`
+	Port             int                    `json:"port" binding:"omitempty,min=1,max=65535"`
+	Username         *string                `json:"username"`
+	Password         *string                `json:"password"`
+	Status           string                 `json:"status" binding:"omitempty,oneof=active inactive"`
+	ExpiresAt        dto.NullableInt64Field `json:"expires_at"`
+	FallbackMode     string                 `json:"fallback_mode" binding:"omitempty,oneof=none proxy direct"`
+	BackupProxyID    dto.NullableInt64Field `json:"backup_proxy_id"`
+	ExpiryWarnDays   *int                   `json:"expiry_warn_days" binding:"omitempty,min=0"`
+	ForceHTTP1       *bool                  `json:"force_http1"`
+	DisableKeepAlive *bool                  `json:"disable_keep_alive"`
 }
 
 // List handles listing all proxies with pagination
@@ -200,19 +200,19 @@ func (h *ProxyHandler) Update(c *gin.Context) {
 		*req.Password = strings.TrimSpace(*req.Password)
 	}
 	proxy, err := h.adminService.UpdateProxy(c.Request.Context(), proxyID, &service.UpdateProxyInput{
-		Name:           strings.TrimSpace(req.Name),
-		Protocol:       strings.TrimSpace(req.Protocol),
-		Host:           strings.TrimSpace(req.Host),
-		Port:           req.Port,
-		Username:       req.Username,
-		Password:       req.Password,
-		Status:         strings.TrimSpace(req.Status),
-		ExpiresAt:      expiresAt,
-		ClearExpiresAt: req.ExpiresAt.Set && expiresAt == nil,
-		FallbackMode:   strings.TrimSpace(req.FallbackMode),
-		BackupProxyID:  req.BackupProxyID.Value,
-		ClearBackupID:  req.BackupProxyID.Set && req.BackupProxyID.Value == nil,
-		ExpiryWarnDays: req.ExpiryWarnDays,
+		Name:             strings.TrimSpace(req.Name),
+		Protocol:         strings.TrimSpace(req.Protocol),
+		Host:             strings.TrimSpace(req.Host),
+		Port:             req.Port,
+		Username:         req.Username,
+		Password:         req.Password,
+		Status:           strings.TrimSpace(req.Status),
+		ExpiresAt:        expiresAt,
+		ClearExpiresAt:   req.ExpiresAt.Set && expiresAt == nil,
+		FallbackMode:     strings.TrimSpace(req.FallbackMode),
+		BackupProxyID:    req.BackupProxyID.Value,
+		ClearBackupID:    req.BackupProxyID.Set && req.BackupProxyID.Value == nil,
+		ExpiryWarnDays:   req.ExpiryWarnDays,
 		ForceHTTP1:       req.ForceHTTP1,
 		DisableKeepAlive: req.DisableKeepAlive,
 	})
