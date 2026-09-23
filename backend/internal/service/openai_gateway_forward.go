@@ -1406,6 +1406,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 空 arguments（如某些模型产出的 arguments:""）会被严格上游整单 400，
 	// 且 Codex 回放历史时每轮复现；改写为 {} 语义等价。
 	body = normalizeBlankToolCallArguments(body)
+	// OpenCode Zen 免费额度只放行流式且带 bash/read 工具的请求。客户端非流式时，
+	// 上游 SSE 由 handleNonStreamingResponse 按 Content-Type 聚合回 JSON。
+	body, _ = shapeOpenCodeZenFreeTierBody(openCodeZenFreeTierEndpoint(targetURL), body)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {

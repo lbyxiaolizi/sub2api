@@ -187,6 +187,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 字段，上游 400 "The `reasoning_content` in the thinking mode must be
 	// passed back to the API"。在共用出站点补空格占位，真实明文不覆盖。
 	body = ensureDeepSeekChatReasoningPlaceholders(account, body)
+	// OpenCode Zen 免费额度只放行流式且带 bash/read 工具的请求（纯对话 403
+	// FreeTierError）：出站补齐形状；客户端要非流式时在下方把 SSE 聚合回 JSON。
+	body, zenShaped := shapeOpenCodeZenFreeTierBody(openCodeZenFreeTierEndpoint(targetURL), body)
+	bufferZenStream := zenShaped && !stream
+	if zenShaped {
+		stream = true
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
@@ -241,6 +248,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if bufferZenStream {
+		maxLineSize := 0
+		if s.cfg != nil {
+			maxLineSize = s.cfg.Gateway.MaxLineSize
+		}
+		bufferOpenCodeZenChatCompletionsSSE(resp, maxLineSize)
 	}
 	return resp, nil
 }
