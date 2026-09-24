@@ -122,3 +122,65 @@ func TestAccountTestService_OpenCodeGoEmptyModelDefaultsToChatCatalogID(t *testi
 	require.Equal(t, "https://opencode.ai/zen/go/v1/chat/completions", upstream.requests[0].URL.String())
 	require.True(t, strings.Contains(recorder.Body.String(), DefaultOpenCodeGoTestModel))
 }
+
+func openCodeZenTestAccount(id int64) *Account {
+	account := openCodeGoTestAccount(id)
+	account.Credentials["account_mode"] = "zen"
+	account.Credentials["base_url"] = "https://opencode.ai/zen/v1"
+	account.Credentials["api_base_urls"] = map[string]any{
+		APIProtocolChatCompletions: "https://opencode.ai/zen/v1",
+		APIProtocolAnthropic:       "https://opencode.ai/zen",
+		APIProtocolResponses:       "https://opencode.ai/zen/v1",
+	}
+	account.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "muse-spark-*", "protocol": APIProtocolResponses}}
+	return account
+}
+
+func requireOpenCodeZenFreeTierShape(t *testing.T, body []byte, endpoint openCodeZenEndpoint) {
+	t.Helper()
+	require.True(t, gjson.GetBytes(body, "stream").Bool())
+	names := openCodeZenToolNames(body, endpoint)
+	require.Contains(t, names, "bash", "Zen 免费额度要求 bash 工具，否则 403 FreeTierError")
+	require.Contains(t, names, "read", "Zen 免费额度要求 read 工具，否则 403 FreeTierError")
+}
+
+func TestAccountTestService_OpenCodeZenChatProbeCarriesFreeTierShape(t *testing.T) {
+	account := openCodeZenTestAccount(407)
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
+	c, recorder := newTestContext()
+
+	err := svc.TestAccountConnection(c, account.ID, "big-pickle", "hi", AccountTestModeDefault)
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/v1/chat/completions", upstream.requests[0].URL.String())
+	requireOpenCodeZenFreeTierShape(t, upstream.lastBody, openCodeZenEndpointChatCompletions)
+	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+	require.Equal(t, "hi", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
+	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
+}
+
+func TestAccountTestService_OpenCodeZenResponsesProbeCarriesFreeTierShape(t *testing.T) {
+	account := openCodeZenTestAccount(408)
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNResponsesTestResponse())
+	c, recorder := newTestContext()
+
+	err := svc.TestAccountConnection(c, account.ID, "muse-spark-1.3-contributor-free", "hi", AccountTestModeDefault)
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/v1/responses", upstream.requests[0].URL.String())
+	requireOpenCodeZenFreeTierShape(t, upstream.lastBody, openCodeZenEndpointResponses)
+	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
+}
+
+func TestAccountTestService_OpenCodeGoChatProbeLeavesBodyUnshaped(t *testing.T) {
+	account := openCodeGoTestAccount(409)
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
+	c, _ := newTestContext()
+
+	err := svc.TestAccountConnection(c, account.ID, "deepseek-v4-flash", "hi", AccountTestModeDefault)
+
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "tools").Exists(), "Go 套餐端点不受免费额度约束，不补工具桩")
+}

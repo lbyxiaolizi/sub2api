@@ -2357,6 +2357,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
 	payloadBytes, _ := json.Marshal(payload)
+	// Zen 免费额度按请求体判定是否来自 OpenCode：与真实转发一致补齐 bash/read 工具桩，
+	// 否则裸 "hi" 探测必然 403 FreeTierError。非 Zen 上游原样不动。
+	payloadBytes, _ = shapeOpenCodeZenFreeTierBody(openCodeZenFreeTierEndpoint(apiURL), payloadBytes)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/chat/completions 测试连接"})
