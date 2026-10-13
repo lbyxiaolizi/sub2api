@@ -19,14 +19,17 @@ const (
 
 	// openCodeUpstreamUserAgent 是出站到 opencode.ai 的客户端身份。Zen 免费额度按
 	// User-Agent 判定「请求是否来自 OpenCode 客户端」：不是 opencode/<semver> 形式
-	// 一律 403 FreeTierError，低于 1.17.0 返回 426 UpgradeRequired（2026-09-17 实测）。
+	// 一律 403 FreeTierError，低于 1.18.0 返回 426 UpgradeRequired（2026-09-24 实测）。
 	// 官方客户端身份必须钉死在此，绝不透传 Codex / Claude Code / curl 的 UA。
-	openCodeUpstreamUserAgent = "opencode/1.18.31"
+	openCodeUpstreamUserAgent = "opencode/1.18.35"
 
-	// OpenCode 客户端的会话 ID 形如 ses_<12 位小写十六进制时间戳><14 位 base62>，共 30 字符。
-	// 免费额度校验要求 x-opencode-session 严格符合该形状：长度或字符集不符同样返回
-	// 403 FreeTierError（实测 ses_x / 12 位随机串 / 大写十六进制前缀均被拒），因此
-	// 非该形状的客户端会话标识必须重新编码后再出站。
+	// OpenCode 客户端以 Identifier.descending("session") 生成会话 ID，形如
+	// ses_<12 位小写十六进制><14 位 base62>（共 30 字符）。其中 12 位十六进制为 48-bit
+	// ~(timestampMs*4096 + counter) 的大端编码：由于单毫秒内 counter 恒为小正整数，
+	// 按位取反后低 12 bit（第 10~12 位十六进制）恒 >= 0xffc0（即第 10 位为 'f'、第 11 位
+	// 为 c/d/e/f，对应 ~counter ∈ [0, 63]）。Zen 免费额度现校验低 12 bit 的高 6 bit 必须
+	// 全为 1（byte[4]&0x0f==0x0f && byte[5]>=0xc0），直接拼接裸 sha256 前 6 字节会以
+	// 63/64 的概率命中 403 FreeTierError（2026-10-14 实测）。
 	openCodeSessionIDPrefix       = "ses_"
 	openCodeSessionIDHexLength    = 12
 	openCodeSessionIDBodyLength   = 26
@@ -116,8 +119,18 @@ func normalizeOpenCodeSessionID(sessionID string) string {
 		return sessionID
 	}
 	digest := sha256.Sum256([]byte(sessionID))
+	var prefix [openCodeSessionIDHexLength / 2]byte
+	copy(prefix[:], digest[:openCodeSessionIDHexLength/2])
+	// 真实 OpenCode descending 会话 ID 的低 12 bit（body[9:12]）为 ~counter：
+	// Zen 免费额度校验低 12 bit >= 0xffc0（即 ~counter ∈ [0, 63]，对应 body[9]=='f' 且
+	// body[10] ∈ {'c','d','e','f'}）。把第 10 位固定为 'f'（prefix[4] 低 4 bit 置 1），
+	// 第 11、12 位取 ~(1 + digest%62) ∈ [0xc1, 0xfe]（恒落在 [0xc0, 0xfe]，既通过
+	// >= 0xffc0 校验，又与真实客户端 counter >= 1 保持一致）。
+	counter := byte(1 + int(digest[openCodeSessionIDHexLength/2-1])%62)
+	prefix[4] |= 0x0f
+	prefix[5] = ^counter
 	body := make([]byte, 0, openCodeSessionIDBodyLength)
-	body = append(body, hex.EncodeToString(digest[:openCodeSessionIDHexLength/2])...)
+	body = append(body, hex.EncodeToString(prefix[:])...)
 	for _, b := range digest[openCodeSessionIDHexLength/2 : openCodeSessionIDHexLength/2+openCodeSessionIDRandomLength] {
 		body = append(body, openCodeSessionIDAlphabet[int(b)%len(openCodeSessionIDAlphabet)])
 	}
@@ -136,6 +149,11 @@ func isOpenCodeSessionID(sessionID string) bool {
 		if strings.IndexByte(openCodeSessionIDHexDigits, body[i]) < 0 {
 			return false
 		}
+	}
+	// 低 12 bit（body[9:12]）的高 6 bit 必须全为 1（即 body[9]=='f' 且
+	// body[10] ∈ {'c','d','e','f'}，对应低 12 bit >= 0xffc0 / descending counter <= 63）。
+	if body[9] != 'f' || body[10] < 'c' {
+		return false
 	}
 	for _, c := range body[openCodeSessionIDHexLength:] {
 		if strings.IndexByte(openCodeSessionIDAlphabet, byte(c)) < 0 {

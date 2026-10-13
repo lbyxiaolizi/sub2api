@@ -233,22 +233,35 @@ func TestBuildUpstreamRequestShapesZenResponses(t *testing.T) {
 	account := openCodeSessionTestAccount("https://opencode.ai/zen/v1")
 	c := newOpenCodeSessionTestContext(t, "")
 
-	req, err := svc.buildUpstreamRequest(
-		context.Background(), c, account,
-		[]byte(`{"model":"muse-spark-1.3-contributor-free","input":"hi"}`), "token", false, "", false,
-	)
-	require.NoError(t, err)
-	body, err := io.ReadAll(req.Body)
-	require.NoError(t, err)
-	require.True(t, gjson.GetBytes(body, "stream").Bool())
-	require.Equal(t, []string{"bash", "read"}, openCodeZenToolNames(body, openCodeZenEndpointResponses))
+	for _, build := range []func() (*http.Request, error){
+		func() (*http.Request, error) {
+			return svc.buildUpstreamRequest(
+				context.Background(), c, account,
+				[]byte(`{"model":"muse-spark-1.3-contributor-free","input":"hi"}`), "token", false, "", false,
+			)
+		},
+		func() (*http.Request, error) {
+			return svc.buildUpstreamRequestOpenAIPassthrough(
+				context.Background(), c, account,
+				[]byte(`{"model":"muse-spark-1.3-contributor-free","input":"hi"}`), "token",
+			)
+		},
+	} {
+		req, err := build()
+		require.NoError(t, err)
+		body, err := io.ReadAll(req.Body)
+		require.NoError(t, err)
+		require.True(t, gjson.GetBytes(body, "stream").Bool())
+		require.Equal(t, []string{"bash", "read"}, openCodeZenToolNames(body, openCodeZenEndpointResponses))
+	}
 }
 
 func TestUpgradeStaleOpenCodeUserAgent(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"opencode/1.4.3", openCodeUpstreamUserAgent},
 		{"opencode/1.17.9 ai-sdk/provider-utils/4.0.23", openCodeUpstreamUserAgent},
-		{"opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14", "opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"},
+		{"opencode/1.18.31", openCodeUpstreamUserAgent},
+		{"opencode/1.18.36 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14", "opencode/1.18.36 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"},
 		{openCodeUpstreamUserAgent, openCodeUpstreamUserAgent},
 		{"custom-relay-agent/2.0", "custom-relay-agent/2.0"},
 		{"", ""},

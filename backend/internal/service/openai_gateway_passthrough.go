@@ -610,6 +610,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 	// DeepSeek / Kimi 原生 Responses 端点为无状态实现（见 normalizeDeepSeekResponsesRequestBody）。
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
+	// OpenCode Zen 免费额度只放行流式且带 bash/read 工具的请求。客户端非流式时，
+	// 上游 SSE 由 handleNonStreamingResponse 按 Content-Type 聚合回 JSON。
+	body, _ = shapeOpenCodeZenFreeTierBody(openCodeZenFreeTierEndpoint(targetURL), body)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

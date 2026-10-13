@@ -282,13 +282,16 @@ func TestOpenCodeSessionIDFromPayloadIgnoresEmptyBody(t *testing.T) {
 	require.Empty(t, openCodeSessionIDFromPayload([]byte(`{"model":"gpt-5"}`)))
 }
 
-// Zen 免费额度按 x-opencode-session 的形状判定客户端：长度或字符集不符即 403，
-// 因此形状本身就是必须守住的契约（真机实测：ses_x / 12 位随机串 / 大写十六进制前缀被拒）。
+// Zen 免费额度按 x-opencode-session 的形状与 descending counter 高 6 bit 判定客户端：
+// 长度、字符集或低 12 位 counter 掩码不符即 403 FreeTierError（真机实测：ses_x / 12 位随机串 /
+// 大写十六进制前缀 / 低 12 位 < 0xffc0 均被拒）。
 func TestIsOpenCodeSessionIDAcceptsOnlyClientShape(t *testing.T) {
 	valid := []string{
 		"ses_f52c5b544ffeUt3bKqeaJsIeV0",
-		openCodeSessionIDPrefix + strings.Repeat("a", openCodeSessionIDBodyLength),
-		openCodeSessionIDPrefix + strings.Repeat("0", openCodeSessionIDHexLength) + strings.Repeat("Z", openCodeSessionIDRandomLength),
+		"ses_3c0b3386dffeABCDEFGHIJKLMN",
+		openCodeSessionIDPrefix + strings.Repeat("a", 9) + "ffe" + strings.Repeat("a", openCodeSessionIDRandomLength),
+		openCodeSessionIDPrefix + strings.Repeat("0", 9) + "fc0" + strings.Repeat("Z", openCodeSessionIDRandomLength),
+		openCodeSessionIDPrefix + strings.Repeat("f", 9) + "fff" + strings.Repeat("9", openCodeSessionIDRandomLength),
 	}
 	for _, id := range valid {
 		require.True(t, isOpenCodeSessionID(id), id)
@@ -301,10 +304,14 @@ func TestIsOpenCodeSessionIDAcceptsOnlyClientShape(t *testing.T) {
 		openCodeSessionIDPrefix + "x",
 		openCodeSessionIDPrefix + strings.Repeat("a", openCodeSessionIDBodyLength-1),
 		openCodeSessionIDPrefix + strings.Repeat("a", openCodeSessionIDBodyLength+1),
-		openCodeSessionIDPrefix + strings.Repeat("A", openCodeSessionIDHexLength) + strings.Repeat("a", openCodeSessionIDRandomLength),
-		openCodeSessionIDPrefix + strings.Repeat("a", openCodeSessionIDBodyLength-1) + "!",
-		openCodeSessionIDPrefix + strings.Repeat("a", openCodeSessionIDBodyLength-1) + "\n",
-		"abc_" + strings.Repeat("a", openCodeSessionIDBodyLength),
+		openCodeSessionIDPrefix + strings.Repeat("a", openCodeSessionIDBodyLength),
+		openCodeSessionIDPrefix + strings.Repeat("0", 9) + "fbf" + strings.Repeat("Z", openCodeSessionIDRandomLength),
+		openCodeSessionIDPrefix + strings.Repeat("0", 9) + "001" + strings.Repeat("Z", openCodeSessionIDRandomLength),
+		openCodeSessionIDPrefix + strings.Repeat("0", 9) + "ef0" + strings.Repeat("Z", openCodeSessionIDRandomLength),
+		openCodeSessionIDPrefix + strings.Repeat("A", 9) + "ffe" + strings.Repeat("a", openCodeSessionIDRandomLength),
+		openCodeSessionIDPrefix + strings.Repeat("a", 9) + "ffe" + strings.Repeat("a", openCodeSessionIDRandomLength-1) + "!",
+		openCodeSessionIDPrefix + strings.Repeat("a", 9) + "ffe" + strings.Repeat("a", openCodeSessionIDRandomLength-1) + "\n",
+		"abc_" + strings.Repeat("a", 9) + "ffe" + strings.Repeat("a", openCodeSessionIDRandomLength),
 	}
 	for _, id := range invalid {
 		require.False(t, isOpenCodeSessionID(id), id)
@@ -312,7 +319,14 @@ func TestIsOpenCodeSessionIDAcceptsOnlyClientShape(t *testing.T) {
 }
 
 func TestNormalizeOpenCodeSessionIDIsDeterministicAndValid(t *testing.T) {
-	for _, raw := range []string{"conv-from-client", "kimi-session-42", "a\nb", "ses_short", strings.Repeat("x", 200)} {
+	for _, raw := range []string{
+		"conv-from-client",
+		"kimi-session-42",
+		"a\nb",
+		"ses_short",
+		"ses_9f86d081884cABCDEFGHIJKLMN", // 裸 sha256 形状但低 12 位不满足 descending counter，必须重编码
+		strings.Repeat("x", 200),
+	} {
 		got := normalizeOpenCodeSessionID(raw)
 		require.True(t, isOpenCodeSessionID(got), "raw=%q got=%q", raw, got)
 		require.Equal(t, got, normalizeOpenCodeSessionID(raw), "同一入参必须映射到同一 id")
