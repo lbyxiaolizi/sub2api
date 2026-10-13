@@ -232,6 +232,27 @@ describe('BackupView', () => {
     expect(apiMocks.restoreBackup).toHaveBeenCalledWith('backup-1', 'restore-password')
   })
 
+  it.each(['backup', 'restore'])('does not resume %s polling after navigation during initial loading', async (operation) => {
+    vi.useFakeTimers()
+    const { promise, resolve: finish } = Promise.withResolvers<object>()
+    apiMocks.listBackups.mockImplementationOnce(() => promise)
+    const wrapper = mountBackupView()
+    try {
+      await flushPromises()
+      wrapper.unmount()
+      finish({ items: [{ ...baseRecord('pending'),
+        status: operation === 'backup' ? 'running' : 'completed',
+        restore_status: operation === 'restore' ? 'running' : undefined,
+      }] })
+      await flushPromises()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      wrapper.unmount()
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
+  })
+
   it('显示分卷数并在下载时列出每个分卷链接', async () => {
     apiMocks.listBackups.mockResolvedValue({ items: [splitBackupRecord] })
     apiMocks.getDownloadURL.mockResolvedValue({

@@ -44,6 +44,9 @@ func ApplyAccountConfigGroupEndpointOverride(credentials map[string]any) {
 		return
 	}
 	credentials["base_url"] = address
+	if protocol, _ := credentials["api_protocol"].(string); strings.TrimSpace(protocol) == APIProtocolAnthropic {
+		credentials["base_url"] = strings.TrimSuffix(address, "/v1")
+	}
 	credentials["api_base_urls"] = map[string]any{
 		APIProtocolChatCompletions: address,
 		APIProtocolResponses:       address,

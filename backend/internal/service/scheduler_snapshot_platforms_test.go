@@ -8,9 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSchedulerSnapshotPlatformsPreserveKiroAndGrok(t *testing.T) {
+func TestSchedulerSnapshotPlatformsPreserveGrok(t *testing.T) {
 	platforms := schedulerSnapshotPlatforms()
 
-	require.Contains(t, platforms, PlatformKiro)
 	require.Contains(t, platforms, PlatformGrok)
 }

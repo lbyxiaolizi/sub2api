@@ -122,7 +122,7 @@ func TestAccountConfigGroupEndpointRemainsIndependentWhileRoutingRulesSync(t *te
 			if model == "new-alias" {
 				model = "route-responses"
 			}
-			require.Equal(t, tc.protocol, account.ResolveOpenCodeGoUpstreamProtocol(model))
+			require.Equal(t, tc.protocol, account.resolveModelRoutedProtocol(model))
 			svc, upstream := adaptiveCNAccountTestService(account, tc.response())
 			c, _ := newTestContext()
 			require.NoError(t, svc.TestAccountConnection(c, account.ID, tc.model, "hi", AccountTestModeDefault))

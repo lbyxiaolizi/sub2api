@@ -495,7 +495,7 @@ func (s *adminServiceImpl) validateAccountConfigGroup(ctx context.Context, group
 	if err := NormalizeHeaderOverrideCredentials(config.Credentials); err != nil {
 		return err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(config.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(config.Credentials); err != nil {
 		return err
 	}
 	if raw, exists := config.Credentials["plan_type"]; exists {

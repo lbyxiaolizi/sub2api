@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"sort"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -47,8 +46,10 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 	case ContentModerationProtocolOpenAIImages:
 		collector.addModerationText(&parts, gjson.GetBytes(body, "prompt").String())
 		collector.collectContentValue(gjson.GetBytes(body, "images"), &parts, &images)
-	case ContentModerationProtocolSystemOne:
-		collector.collectSystemOneText(gjson.GetBytes(body, "state"), gjson.GetBytes(body, "questions"), &parts)
+	case ContentModerationProtocolSystemOne, ContentModerationProtocolTypeSafeSystemOne:
+		// System One carries no client-harness reminder blocks, so a literal
+		// <system-reminder> is ordinary user text and must never be skipped.
+		moderationTextCollector{}.collectSystemOneInput(body, &parts)
 	default:
 		collector.collectLastResponsesInput(gjson.GetBytes(body, "input"), &parts, &images)
 		collector.collectLastRoleMessage(gjson.GetBytes(body, "messages"), "user", &parts, &images)
@@ -62,6 +63,67 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 		out.Normalize()
 	}
 	return out
+}
+
+// collectSystemOneInput moderates every client-controlled text of a System One
+// request: question IDs, every question field except the validated type,
+// unknown top-level extension fields, and the evaluated state. Object keys are
+// sent to Jev as part of the JSON, so they are moderated like values.
+func (collector moderationTextCollector) collectSystemOneInput(body []byte, parts *[]string) {
+	root := gjson.ParseBytes(body)
+	questions := root.Get("questions")
+	if !questions.IsObject() {
+		collector.collectSystemOneText(questions, parts)
+	}
+	questions.ForEach(func(id, question gjson.Result) bool {
+		collector.addModerationText(parts, id.String())
+		if !question.IsObject() {
+			collector.collectSystemOneText(question, parts)
+			return true
+		}
+		question.ForEach(func(field, value gjson.Result) bool {
+			switch field.String() {
+			case "type":
+				return true
+			case "instructions", "criteria":
+			default:
+				collector.addModerationText(parts, field.String())
+			}
+			collector.collectSystemOneText(value, parts)
+			return true
+		})
+		return true
+	})
+	root.ForEach(func(field, value gjson.Result) bool {
+		switch field.String() {
+		case "model", "stream", "state", "questions":
+			return true
+		}
+		collector.addModerationText(parts, field.String())
+		collector.collectSystemOneText(value, parts)
+		return true
+	})
+	collector.collectSystemOneText(root.Get("state"), parts)
+}
+
+func (collector moderationTextCollector) collectSystemOneText(value gjson.Result, parts *[]string) {
+	switch {
+	case !value.Exists():
+		return
+	case value.Type == gjson.String:
+		collector.addModerationText(parts, value.String())
+	case value.IsArray():
+		value.ForEach(func(_, child gjson.Result) bool {
+			collector.collectSystemOneText(child, parts)
+			return true
+		})
+	case value.IsObject():
+		value.ForEach(func(key, child gjson.Result) bool {
+			collector.addModerationText(parts, key.String())
+			collector.collectSystemOneText(child, parts)
+			return true
+		})
+	}
 }
 
 func (collector moderationTextCollector) collectLastRoleMessage(messages gjson.Result, role string, parts *[]string, images *[]string) {
@@ -338,42 +400,6 @@ func (collector moderationTextCollector) addModerationText(parts *[]string, text
 		return
 	}
 	*parts = append(*parts, text)
-}
-
-// collectSystemOneText 收集 SystemOne (Jev) 请求的待审文本：state 优先，
-// 其次为各 question 的 instructions 与 criteria（按 question ID 排序，
-// criteria 按 label/下标稳定输出，保证同一请求每次提取结果一致）。
-func (collector moderationTextCollector) collectSystemOneText(state, questions gjson.Result, parts *[]string) {
-	if questions.IsObject() {
-		ids := make([]string, 0)
-		questions.ForEach(func(id, _ gjson.Result) bool {
-			ids = append(ids, id.String())
-			return true
-		})
-		sort.Strings(ids)
-		for _, id := range ids {
-			question := questions.Get(id)
-			collector.addModerationText(parts, question.Get("instructions").String())
-			criteria := question.Get("criteria")
-			if criteria.IsObject() {
-				labels := make([]string, 0)
-				criteria.ForEach(func(label, _ gjson.Result) bool {
-					labels = append(labels, label.String())
-					return true
-				})
-				sort.Strings(labels)
-				for _, label := range labels {
-					collector.addModerationText(parts, label+": "+criteria.Get(label).String())
-				}
-			} else if criteria.IsArray() {
-				criteria.ForEach(func(_, rubric gjson.Result) bool {
-					collector.addModerationText(parts, rubric.String())
-					return true
-				})
-			}
-		}
-	}
-	collector.addModerationText(parts, state.String())
 }
 
 func normalizeContentModerationText(text string) string {

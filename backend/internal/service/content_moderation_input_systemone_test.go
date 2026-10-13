@@ -20,8 +20,10 @@ func TestExtractContentModerationInput_SystemOneCollectsStateAndQuestions(t *tes
 
 	require.Contains(t, input.Text, "payments failed three days")
 	require.Contains(t, input.Text, "which team")
-	require.Contains(t, input.Text, "billing: payment problems")
-	require.Contains(t, input.Text, "technical: bugs")
+	require.Contains(t, input.Text, "billing")
+	require.Contains(t, input.Text, "payment problems")
+	require.Contains(t, input.Text, "technical")
+	require.Contains(t, input.Text, "bugs")
 	require.Contains(t, input.Text, "how frustrated")
 	require.Contains(t, input.Text, "calm")
 	require.Contains(t, input.Text, "angry")

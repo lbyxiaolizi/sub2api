@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 const { channelsList, getModelDefaultPricing, groupsGetAll, settingsGetWebSearchEmulationConfig, syncPricingModels } = vi.hoisted(() => ({
   channelsList: vi.fn(),
@@ -188,6 +189,11 @@ describe('ChannelsView 弹框布局', () => {
   })
 
   it('Kiro 填充默认模型无论计费基准如何都按请求模型分组并查默认价格', async () => {
+    setPlatformCatalog({
+      platforms: [...BUILTIN_PLATFORM_CATALOG.platforms, { id: 'kiro', display_name: 'Kiro', gateway: 'anthropic', cn_provider: false }],
+      composite_precedence: [...BUILTIN_PLATFORM_CATALOG.composite_precedence, 'kiro'],
+    })
+    try {
     groupsGetAll.mockResolvedValue([
       { id: 10, name: 'kiro free', platform: 'kiro', rate_multiplier: 1, account_count: 0 },
     ])
@@ -247,14 +253,14 @@ describe('ChannelsView 弹框布局', () => {
 
     const kiroPlatformLabel = wrapper
       .findAll('label')
-      .find((label) => label.text().includes('kiro'))
+      .find((label) => label.text().toLowerCase().includes('kiro'))
     expect(kiroPlatformLabel).toBeTruthy()
     await kiroPlatformLabel!.find('input[type="checkbox"]').setValue(true)
     await flushPromises()
 
     const kiroTab = wrapper
       .findAll('button')
-      .find((button) => button.text().includes('kiro'))
+      .find((button) => button.text().toLowerCase().includes('kiro'))
     expect(kiroTab).toBeTruthy()
     await kiroTab!.trigger('click')
     await flushPromises()
@@ -289,5 +295,8 @@ describe('ChannelsView 弹框布局', () => {
     expect(pricingCards[4].find('.pricing-input-price').text()).toBe('1')
     expect(pricingCards[5].find('.pricing-models').text()).toBe('claude-opus-4-8-thinking')
     expect(pricingCards[5].find('.pricing-input-price').text()).toBe('2')
+    } finally {
+      resetPlatformCatalog()
+    }
   })
 })
