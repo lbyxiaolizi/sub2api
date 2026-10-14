@@ -17,18 +17,19 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// OpenCode Zen 免费额度（opencode.ai/zen，非 /zen/go 付费计划）除身份头
-// （User-Agent + x-opencode-session，见 openai_opencode_session.go）外，还按请求体
-// 判定「是否来自 OpenCode 客户端」，不满足一律 403 FreeTierError（2026-09-24 实测）：
+// OpenCode Zen 免费额度（opencode.ai/zen 与 opencode.ai/inference，非 /go 付费计划）除身份头
+// （User-Agent + x-opencode-session + x-opencode-session-id，见 openai_opencode_session.go）外，
+// 还按请求体判定「是否来自 OpenCode 客户端」，不满足一律 403 FreeTierError（2026-09-24 / 2026-10-15 实测）：
 //
 //   - stream 必须为 true：stream=false / 缺省均被拒；
-//   - tools 必须同时含名为 bash 与 read 的工具：只校验名字（区分大小写，Bash/Read
-//     被拒），不校验 schema / description；system prompt、tool_choice 不参与判定。
+//   - tools 必须同时含名为 bash 与 read 的工具（区分大小写，Bash/Read 被拒），且两者的
+//     parameters.properties 均必须为非空对象（空对象 {} 或缺省 parameters 均返回 403 FreeTierError）；
+//     system prompt、tool_choice 不参与判定。
 //
 // 真实 OpenCode 客户端恒满足上述条件；纯对话（无工具、非流式）的中转请求则全部被拒。
-// 出站前补齐缺失的工具桩并强制流式；客户端要非流式时，由网关把上游 SSE 聚合回
-// 单个 JSON（Chat Completions 见 aggregateOpenCodeChatCompletionsSSE，Responses
-// 由 handleNonStreamingResponse 的 SSE→JSON 既有逻辑兜底）。
+// 出站前补齐缺失的工具桩（或补齐已有 bash/read 工具缺失的 properties）并强制流式；
+// 客户端要非流式时，由网关把上游 SSE 聚合回单个 JSON（Chat Completions 见
+// aggregateOpenCodeChatCompletionsSSE，Responses 由 handleNonStreamingResponse 的 SSE→JSON 既有逻辑兜底）。
 var openCodeZenFreeTierToolNames = []string{"bash", "read"}
 
 // openCodeZenFreeTierStubDescription 让模型不去调用补入的工具桩：实测配合
@@ -44,7 +45,7 @@ const (
 )
 
 // openCodeZenFreeTierEndpoint 判定出站目标是否为受免费额度校验的 Zen 推理端点。
-// /zen/go（付费计划）、SystemOne、/responses/compact 等不在此列。
+// /zen/go 与 /inference/go（付费计划）、SystemOne、/responses/compact 等不在此列。
 func openCodeZenFreeTierEndpoint(targetURL string) openCodeZenEndpoint {
 	if !isOfficialOpenCodeHost(targetURL) {
 		return openCodeZenEndpointNone
@@ -54,7 +55,9 @@ func openCodeZenFreeTierEndpoint(targetURL string) openCodeZenEndpoint {
 		return openCodeZenEndpointNone
 	}
 	path := strings.TrimRight(parsed.Path, "/")
-	if !strings.HasPrefix(path, "/zen/") || strings.HasPrefix(path, "/zen/go/") {
+	isZenFree := strings.HasPrefix(path, "/zen/") && !strings.HasPrefix(path, "/zen/go/")
+	isInferenceFree := strings.HasPrefix(path, "/inference/") && !strings.HasPrefix(path, "/inference/go/")
+	if !isZenFree && !isInferenceFree {
 		return openCodeZenEndpointNone
 	}
 	switch {
@@ -68,9 +71,9 @@ func openCodeZenFreeTierEndpoint(targetURL string) openCodeZenEndpoint {
 }
 
 // shapeOpenCodeZenFreeTierBody 把出站请求体补齐为 Zen 免费额度可接受的形状：
-// 强制 stream=true，并补入缺失的 bash / read 工具桩。只做增量修改——已满足条件的
-// 请求（真实 OpenCode 客户端、已带这些工具的 harness）原样放行。changed 为 false
-// 时返回原 body。
+// 强制 stream=true，并补入缺失的 bash / read 工具桩（以及为已有 bash/read 补齐非空 properties）。
+// 只做增量修改——已满足条件的请求（真实 OpenCode 客户端、已带完整 schema 的 harness）原样放行。
+// changed 为 false 时返回原 body。
 func shapeOpenCodeZenFreeTierBody(endpoint openCodeZenEndpoint, body []byte) (shaped []byte, changed bool) {
 	if endpoint == openCodeZenEndpointNone || len(body) == 0 || !gjson.ValidBytes(body) {
 		return body, false
@@ -78,14 +81,34 @@ func shapeOpenCodeZenFreeTierBody(endpoint openCodeZenEndpoint, body []byte) (sh
 	out := body
 	var err error
 
-	hadTools := len(gjson.GetBytes(out, "tools").Array()) > 0
+	toolsArr := gjson.GetBytes(out, "tools").Array()
+	hadTools := len(toolsArr) > 0
 	present := make(map[string]bool, len(openCodeZenFreeTierToolNames))
-	for _, tool := range gjson.GetBytes(out, "tools").Array() {
+	for idx, tool := range toolsArr {
 		name := tool.Get("name").String()
+		paramsRelPath := "parameters"
 		if endpoint == openCodeZenEndpointChatCompletions {
 			name = tool.Get("function.name").String()
+			paramsRelPath = "function.parameters"
 		}
 		present[name] = true
+		if name == "bash" || name == "read" {
+			params := tool.Get(paramsRelPath)
+			props := params.Get("properties")
+			if !props.IsObject() || len(props.Map()) == 0 {
+				basePath := fmt.Sprintf("tools.%d.%s", idx, paramsRelPath)
+				if params.Get("type").String() == "" {
+					if out, err = sjson.SetBytes(out, basePath+".type", "object"); err != nil {
+						return body, false
+					}
+				}
+				propName := openCodeZenFreeTierDefaultPropertyName(name)
+				if out, err = sjson.SetRawBytes(out, basePath+".properties."+propName, []byte(`{"type":"string"}`)); err != nil {
+					return body, false
+				}
+				changed = true
+			}
+		}
 	}
 	for _, name := range openCodeZenFreeTierToolNames {
 		if present[name] {
@@ -124,8 +147,16 @@ func shapeOpenCodeZenFreeTierBody(endpoint openCodeZenEndpoint, body []byte) (sh
 	return out, true
 }
 
+func openCodeZenFreeTierDefaultPropertyName(name string) string {
+	if name == "read" {
+		return "filePath"
+	}
+	return "command"
+}
+
 func openCodeZenFreeTierStubTool(endpoint openCodeZenEndpoint, name string) []byte {
-	params := json.RawMessage(`{"type":"object","properties":{}}`)
+	propName := openCodeZenFreeTierDefaultPropertyName(name)
+	params := json.RawMessage(`{"type":"object","properties":{"` + propName + `":{"type":"string"}}}`)
 	var tool any
 	if endpoint == openCodeZenEndpointChatCompletions {
 		tool = apicompat.ChatTool{

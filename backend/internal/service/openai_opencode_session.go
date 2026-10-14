@@ -15,6 +15,7 @@ import (
 
 const (
 	openCodeSessionHeader         = "X-OpenCode-Session"
+	openCodeClientSessionIDHeader = "X-OpenCode-Session-Id"
 	openCodeInboundBodyContextKey = "opencode_inbound_body"
 
 	// openCodeUpstreamUserAgent 是出站到 opencode.ai 的客户端身份。Zen 免费额度按
@@ -64,10 +65,11 @@ func openCodeInboundBodies(c *gin.Context) [][]byte {
 }
 
 // applyOpenCodeUpstreamIdentity stamps a ses_<26 base62> conversation id in
-// x-opencode-session on outbound inference requests to opencode.ai. The Zen free
-// tier rejects requests whose session header is missing or malformed (403
-// FreeTierError); the Go gateway requires the session value to be present
-// (MissingSessionID, 2026-09-05). The pinned User-Agent is stamped separately by
+// both x-opencode-session and x-opencode-session-id on outbound inference
+// requests to opencode.ai. The Zen free tier rejects requests when either
+// session header is missing or malformed (403 FreeTierError, 2026-10-15); the
+// Go gateway requires the session value to be present (MissingSessionID,
+// 2026-09-05). The pinned User-Agent is stamped separately by
 // applyOpenCodeUpstreamUserAgent, which runs BEFORE Account.ApplyHeaderOverrides
 // so an explicit account-level user-agent override keeps the final say — except a
 // stale opencode/<semver> override, which upgradeStaleOpenCodeUserAgent lifts to
@@ -88,16 +90,18 @@ func applyOpenCodeUpstreamIdentity(c *gin.Context, account *Account, targetURL s
 
 	if isOfficialOpenCodeHost(targetURL) {
 		upgradeStaleOpenCodeUserAgent(headers)
+		stripForbiddenOpenCodeHeaders(headers)
 	}
 
 	payloads := append(openCodeInboundBodies(c), bodies...)
-	sessionID := resolveOpenCodeSessionID(c, headers, payloads...)
+	sessionID := normalizeOpenCodeSessionID(resolveOpenCodeSessionID(c, headers, payloads...))
 	for key := range headers {
-		if strings.EqualFold(key, openCodeSessionHeader) {
+		if strings.EqualFold(key, openCodeSessionHeader) || strings.EqualFold(key, openCodeClientSessionIDHeader) {
 			delete(headers, key)
 		}
 	}
-	headers.Set(openCodeSessionHeader, normalizeOpenCodeSessionID(sessionID))
+	headers.Set(openCodeSessionHeader, sessionID)
+	headers.Set(openCodeClientSessionIDHeader, sessionID)
 }
 
 func shouldSendOpenCodeSessionHeader(account *Account, targetURL string) bool {
@@ -241,9 +245,23 @@ func upgradeStaleOpenCodeUserAgent(headers http.Header) {
 	headers.Set("User-Agent", openCodeUpstreamUserAgent)
 }
 
+// stripForbiddenOpenCodeHeaders 移除在官方 opencode.ai 上游会触发 403 FreeTierError
+// 的历史伪装头（如早期 OpenRouter 兼容模板遗留的 http-referer / x-title，2026-10-15 实测
+// 携带 http-referer 会直接被 Zen 免费层判定为非官方客户端并拒绝）。
+func stripForbiddenOpenCodeHeaders(headers http.Header) {
+	for key := range headers {
+		if strings.EqualFold(key, "http-referer") || strings.EqualFold(key, "x-title") {
+			delete(headers, key)
+		}
+	}
+}
+
 func resolveOpenCodeSessionID(c *gin.Context, headers http.Header, bodies ...[]byte) string {
 	if c != nil && c.Request != nil {
 		if sessionID := sanitizeSessionID(c.GetHeader(openCodeSessionHeader)); sessionID != "" {
+			return sessionID
+		}
+		if sessionID := sanitizeSessionID(c.GetHeader(openCodeClientSessionIDHeader)); sessionID != "" {
 			return sessionID
 		}
 		if sessionID := sanitizeSessionID(explicitOpenAIHeaderSessionID(c)); sessionID != "" {
@@ -304,9 +322,11 @@ func existingOpenCodeSessionHeader(headers http.Header) string {
 	if headers == nil {
 		return ""
 	}
-	for key, values := range headers {
-		if strings.EqualFold(key, openCodeSessionHeader) && len(values) > 0 {
-			return values[0]
+	for _, target := range []string{openCodeSessionHeader, openCodeClientSessionIDHeader} {
+		for key, values := range headers {
+			if strings.EqualFold(key, target) && len(values) > 0 && strings.TrimSpace(values[0]) != "" {
+				return values[0]
+			}
 		}
 	}
 	return ""

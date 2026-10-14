@@ -20,9 +20,15 @@ func TestOpenCodeZenFreeTierEndpoint(t *testing.T) {
 	}{
 		{"https://opencode.ai/zen/v1/chat/completions", openCodeZenEndpointChatCompletions},
 		{"https://opencode.ai/zen/v1/responses", openCodeZenEndpointResponses},
+		{"https://opencode.ai/inference/v1/chat/completions", openCodeZenEndpointChatCompletions},
+		{"https://opencode.ai/inference/openai/v1/chat/completions", openCodeZenEndpointChatCompletions},
+		{"https://opencode.ai/inference/v1/responses", openCodeZenEndpointResponses},
+		{"https://opencode.ai/inference/openai/v1/responses", openCodeZenEndpointResponses},
 		{"https://opencode.ai/zen/v1/responses/compact", openCodeZenEndpointNone},
 		{"https://opencode.ai/zen/v1/systemone", openCodeZenEndpointNone},
 		{"https://opencode.ai/zen/go/v1/chat/completions", openCodeZenEndpointNone},
+		{"https://opencode.ai/inference/go/v1/chat/completions", openCodeZenEndpointNone},
+		{"https://opencode.ai/inference/go/openai/v1/chat/completions", openCodeZenEndpointNone},
 		{"https://opencode.ai.evil.example/zen/v1/chat/completions", openCodeZenEndpointNone},
 		{"http://opencode.ai/zen/v1/chat/completions", openCodeZenEndpointNone},
 		{"https://api.openai.com/v1/chat/completions", openCodeZenEndpointNone},
@@ -52,6 +58,8 @@ func TestShapeOpenCodeZenFreeTierBodyPlainChat(t *testing.T) {
 	require.True(t, gjson.GetBytes(shaped, "stream_options.include_usage").Bool())
 	require.Equal(t, "none", gjson.GetBytes(shaped, "tool_choice").String(), "纯对话补桩后必须禁用工具调用")
 	require.Equal(t, []string{"bash", "read"}, openCodeZenToolNames(shaped, openCodeZenEndpointChatCompletions))
+	require.Equal(t, "string", gjson.GetBytes(shaped, "tools.0.function.parameters.properties.command.type").String())
+	require.Equal(t, "string", gjson.GetBytes(shaped, "tools.1.function.parameters.properties.filePath.type").String())
 	require.Equal(t, "hi", gjson.GetBytes(shaped, "messages.0.content").String())
 }
 
@@ -60,15 +68,24 @@ func TestShapeOpenCodeZenFreeTierBodyKeepsClientToolsAndChoice(t *testing.T) {
 	shaped, changed := shapeOpenCodeZenFreeTierBody(openCodeZenEndpointChatCompletions, body)
 	require.True(t, changed)
 	require.Equal(t, []string{"bash", "lookup", "read"}, openCodeZenToolNames(shaped, openCodeZenEndpointChatCompletions))
+	require.Equal(t, "string", gjson.GetBytes(shaped, "tools.0.function.parameters.properties.command.type").String(), "已有 bash 缺 properties 时必须补齐非空属性")
+	require.Equal(t, "string", gjson.GetBytes(shaped, "tools.2.function.parameters.properties.filePath.type").String())
 	require.Equal(t, "auto", gjson.GetBytes(shaped, "tool_choice").String())
 	require.False(t, gjson.GetBytes(shaped, "stream_options").Exists(), "客户端本就流式时不改 stream_options")
 }
 
 func TestShapeOpenCodeZenFreeTierBodyLeavesCompliantRequestUntouched(t *testing.T) {
-	body := []byte(`{"model":"m","stream":true,"tools":[{"type":"function","function":{"name":"read"}},{"type":"function","function":{"name":"bash"}}]}`)
+	body := []byte(`{"model":"m","stream":true,"tools":[{"type":"function","function":{"name":"read","parameters":{"type":"object","properties":{"filePath":{"type":"string"}}}}},{"type":"function","function":{"name":"bash","parameters":{"type":"object","properties":{"command":{"type":"string"}}}}}]}`)
 	shaped, changed := shapeOpenCodeZenFreeTierBody(openCodeZenEndpointChatCompletions, body)
 	require.False(t, changed)
 	require.Equal(t, string(body), string(shaped))
+
+	// 若客户端虽带 read/bash 但缺非空 properties，仍需补齐以避免 403 FreeTierError。
+	bareTools := []byte(`{"model":"m","stream":true,"tools":[{"type":"function","function":{"name":"read"}},{"type":"function","function":{"name":"bash","parameters":{"type":"object","properties":{}}}}]}`)
+	shapedBare, changedBare := shapeOpenCodeZenFreeTierBody(openCodeZenEndpointChatCompletions, bareTools)
+	require.True(t, changedBare)
+	require.Equal(t, "string", gjson.GetBytes(shapedBare, "tools.0.function.parameters.properties.filePath.type").String())
+	require.Equal(t, "string", gjson.GetBytes(shapedBare, "tools.1.function.parameters.properties.command.type").String())
 }
 
 func TestShapeOpenCodeZenFreeTierBodyToolNamesAreCaseSensitive(t *testing.T) {
@@ -84,6 +101,8 @@ func TestShapeOpenCodeZenFreeTierBodyResponses(t *testing.T) {
 	require.True(t, changed)
 	require.True(t, gjson.GetBytes(shaped, "stream").Bool())
 	require.Equal(t, []string{"bash", "read"}, openCodeZenToolNames(shaped, openCodeZenEndpointResponses))
+	require.Equal(t, "string", gjson.GetBytes(shaped, "tools.0.parameters.properties.command.type").String())
+	require.Equal(t, "string", gjson.GetBytes(shaped, "tools.1.parameters.properties.filePath.type").String())
 	require.False(t, gjson.GetBytes(shaped, "tool_choice").Exists(), "muse 系 Responses 不接受 tool_choice=none")
 	require.False(t, gjson.GetBytes(shaped, "stream_options").Exists())
 }

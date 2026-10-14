@@ -48,21 +48,25 @@ func openCodeSessionTestAccount(baseURL string) *Account {
 
 func requireSingleOpenCodeSessionHeader(t *testing.T, headers http.Header, want string) {
 	t.Helper()
-	count := 0
-	for key, values := range headers {
-		if strings.EqualFold(key, openCodeSessionHeader) {
-			count += len(values)
-			require.Equal(t, []string{want}, values)
+	for _, target := range []string{openCodeSessionHeader, openCodeClientSessionIDHeader} {
+		count := 0
+		for key, values := range headers {
+			if strings.EqualFold(key, target) {
+				count += len(values)
+				require.Equal(t, []string{want}, values)
+			}
 		}
+		require.Equal(t, 1, count, target)
 	}
-	require.Equal(t, 1, count)
 }
 
-// requireOpenCodeClientSessionID asserts the header carries a value in the shape the
-// OpenCode client emits (ses_<12 lowercase hex><14 base62>) and returns it.
+// requireOpenCodeClientSessionID asserts both session headers carry the same value in the
+// shape the OpenCode client emits (ses_<12 lowercase hex><14 base62>) and returns it.
 func requireOpenCodeClientSessionID(t *testing.T, headers http.Header) string {
 	t.Helper()
-	return requireOpenCodeClientSessionValue(t, headers.Get(openCodeSessionHeader))
+	got := requireOpenCodeClientSessionValue(t, headers.Get(openCodeSessionHeader))
+	require.Equal(t, got, headers.Get(openCodeClientSessionIDHeader), "x-opencode-session 与 x-opencode-session-id 必须一致出站")
+	return got
 }
 
 func requireOpenCodeClientSessionValue(t *testing.T, value string) string {
@@ -77,6 +81,7 @@ func openCodeIdentitySessionFor(t *testing.T, c *gin.Context, account *Account, 
 	t.Helper()
 	headers := make(http.Header)
 	applyOpenCodeUpstreamIdentity(c, account, targetURL, headers, bodies...)
+	require.Equal(t, headers.Get(openCodeSessionHeader), headers.Get(openCodeClientSessionIDHeader))
 	return headers.Get(openCodeSessionHeader)
 }
 
@@ -619,6 +624,11 @@ func TestOpenCodeSessionForwardedByRawChatCompletionsAfterAccountOverride(t *tes
 	svc := openCodeSessionTestService()
 	svc.httpUpstream = upstream
 	account := openCodeSessionTestAccount("https://opencode.ai/zen/v1")
+	account.Credentials[credKeyHeaderOverrides] = map[string]any{
+		"x-opencode-session": "override-session",
+		"http-referer":       "https://opencode.ai/",
+		"x-title":            "opencode",
+	}
 	c := newOpenCodeSessionTestContext(t, "conversation-789")
 	c.Request.Header.Set("User-Agent", "opencode/1.0.0")
 
@@ -632,6 +642,8 @@ func TestOpenCodeSessionForwardedByRawChatCompletionsAfterAccountOverride(t *tes
 	require.NotNil(t, upstream.request)
 	requireOpenCodeClientSessionID(t, upstream.request.Header)
 	require.Equal(t, openCodeUpstreamUserAgent, upstream.request.Header.Get("User-Agent"), "过期/伪造的客户端 UA 不得出站")
+	require.Empty(t, upstream.request.Header.Get("http-referer"), "触发 403 FreeTierError 的 http-referer 覆写不得出站")
+	require.Empty(t, upstream.request.Header.Get("x-title"), "遗留 x-title 覆写不得出站")
 }
 
 func TestOpenCodeUpstreamIdentityIsNotForwardedToOtherUpstreams(t *testing.T) {

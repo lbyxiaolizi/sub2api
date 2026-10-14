@@ -142,6 +142,11 @@ func requireOpenCodeZenFreeTierShape(t *testing.T, body []byte, endpoint openCod
 	names := openCodeZenToolNames(body, endpoint)
 	require.Contains(t, names, "bash", "Zen 免费额度要求 bash 工具，否则 403 FreeTierError")
 	require.Contains(t, names, "read", "Zen 免费额度要求 read 工具，否则 403 FreeTierError")
+	propsPrefix := "tools.0.parameters.properties"
+	if endpoint == openCodeZenEndpointChatCompletions {
+		propsPrefix = "tools.0.function.parameters.properties"
+	}
+	require.NotEmpty(t, gjson.GetBytes(body, propsPrefix).Map(), "Zen 免费额度要求 bash/read 工具含非空 parameters.properties")
 }
 
 func TestAccountTestService_OpenCodeZenChatProbeCarriesFreeTierShape(t *testing.T) {
@@ -154,6 +159,7 @@ func TestAccountTestService_OpenCodeZenChatProbeCarriesFreeTierShape(t *testing.
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "https://opencode.ai/zen/v1/chat/completions", upstream.requests[0].URL.String())
+	requireOpenCodeClientSessionID(t, upstream.requests[0].Header)
 	requireOpenCodeZenFreeTierShape(t, upstream.lastBody, openCodeZenEndpointChatCompletions)
 	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
 	require.Equal(t, "hi", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
@@ -170,6 +176,37 @@ func TestAccountTestService_OpenCodeZenResponsesProbeCarriesFreeTierShape(t *tes
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "https://opencode.ai/zen/v1/responses", upstream.requests[0].URL.String())
+	requireOpenCodeClientSessionID(t, upstream.requests[0].Header)
+	requireOpenCodeZenFreeTierShape(t, upstream.lastBody, openCodeZenEndpointResponses)
+	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
+}
+
+func TestAccountTestService_OpenAIZenResponsesProbeCarriesFreeTierShape(t *testing.T) {
+	account := &Account{
+		ID:          410,
+		Name:        "oc zen responses",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-opencode-zen-test",
+			"base_url": "https://opencode.ai/zen/v1",
+		},
+		Extra: map[string]any{
+			"api_protocol": APIProtocolResponses,
+		},
+	}
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNResponsesTestResponse())
+	c, recorder := newTestContext()
+
+	err := svc.TestAccountConnection(c, account.ID, "muse-spark-1.3-contributor-free", "hi", AccountTestModeDefault)
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/v1/responses", upstream.requests[0].URL.String())
+	require.Equal(t, openCodeUpstreamUserAgent, upstream.requests[0].Header.Get("User-Agent"))
+	requireOpenCodeClientSessionID(t, upstream.requests[0].Header)
 	requireOpenCodeZenFreeTierShape(t, upstream.lastBody, openCodeZenEndpointResponses)
 	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
 }

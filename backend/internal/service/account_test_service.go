@@ -1132,6 +1132,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
 	payloadBytes, _ := json.Marshal(payload)
+	if !isOAuth {
+		payloadBytes, _ = shapeOpenCodeZenFreeTierBody(openCodeZenFreeTierEndpoint(apiURL), payloadBytes)
+	}
 
 	// Send test_start event once. A task-invalid Agent Identity response may
 	// restart this probe after registering a replacement task.
@@ -1149,6 +1152,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	req.Header.Set("Content-Type", "application/json")
 	if !isOAuth {
 		applyOpenAICodexProbeHeaders(req.Header)
+		applyOpenCodeUpstreamUserAgent(credentialAccount, apiURL, req.Header)
 	}
 	if credentialAccount.IsOpenAIAgentIdentity() {
 		authHeaders, authErr := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s.agentIdentityWS, &s.agentIdentityTaskMu, credentialAccount)
@@ -1184,6 +1188,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	credentialAccount.ApplyHeaderOverrides(req.Header)
+	if !isOAuth {
+		applyOpenCodeUpstreamIdentity(c, credentialAccount, apiURL, req.Header, payloadBytes)
+	}
 
 	// Get proxy URL
 	proxyURL := ""
